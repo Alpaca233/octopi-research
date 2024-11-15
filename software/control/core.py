@@ -2359,6 +2359,8 @@ class MultiPointWorker(QObject):
             image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["638"]["hex"])
         elif '730 nm' in config.name:          
             image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["730"]["hex"])
+        else:
+            image = np.stack([image] * 3, axis=-1)
 
         return image
 
