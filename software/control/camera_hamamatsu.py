@@ -4,9 +4,9 @@ import time
 import numpy as np
 import threading
 
-from control.dcam import Dcam, Dcamapi
-from control.dcamapi4 import *
-from control._def import *
+from software.control.dcam import Dcam, Dcamapi
+from software.control.dcamapi4 import *
+from software.control._def import *
 
 def get_sn_by_model(model_name):
     try:

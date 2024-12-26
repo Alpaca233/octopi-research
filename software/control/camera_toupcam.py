@@ -1,14 +1,14 @@
 import time
 import numpy as np
 
-import squid.logging
-from control._def import *
+import software.squid.logging
+from software.control._def import *
 
 import threading
-import control.toupcam as toupcam
-from control.toupcam_exceptions import hresult_checker
+import software.control.toupcam as toupcam
+from software.control.toupcam_exceptions import hresult_checker
 
-log = squid.logging.get_logger(__name__)
+log = software.squid.logging.get_logger(__name__)
 
 def get_sn_by_model(model_name):
     try:

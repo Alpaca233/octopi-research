@@ -11,19 +11,19 @@ from qtpy.QtWidgets import *
 from qtpy.QtGui import *
 
 # control
-from control._def import *
+from software.control._def import *
 if DO_FLUORESCENCE_RTP:
-    from control.processing_handler import ProcessingHandler
-    from control.processing_pipeline import *
-    from control.multipoint_built_in_functionalities import malaria_rtp
+    from software.control.processing_handler import ProcessingHandler
+    from software.control.processing_pipeline import *
+    from software.control.multipoint_built_in_functionalities import malaria_rtp
 
-import control.utils as utils
-import control.utils_config as utils_config
-import control.tracking as tracking
-import control.serial_peripherals as serial_peripherals
+import software.control.utils as utils
+import software.control.utils_config as utils_config
+import software.control.tracking as tracking
+import software.control.serial_peripherals as serial_peripherals
 
 try:
-    from control.multipoint_custom_script_entry_v2 import *
+    from software.control.multipoint_custom_script_entry_v2 import *
     print('custom multipoint script found')
 except:
     pass

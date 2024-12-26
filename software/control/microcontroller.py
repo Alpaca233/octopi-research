@@ -7,8 +7,8 @@ import serial
 import serial.tools.list_ports
 from crc import CrcCalculator, Crc8
 
-import squid.logging
-from control._def import *
+import software.squid.logging
+from software.control._def import *
 
 
 # add user to the dialout group to avoid the need to use sudo

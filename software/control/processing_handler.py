@@ -2,7 +2,7 @@ import threading
 import queue
 import numpy as np
 import pandas as pd
-import control.utils as utils
+import software.control.utils as utils
 
 def default_image_preprocessor(image, callable_list):
     """

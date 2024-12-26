@@ -2,14 +2,14 @@ import time
 import numpy as np
 import threading
 
-from control._def import *
+from software.control._def import *
 
 from ids_peak import ids_peak
 from ids_peak_ipl import ids_peak_ipl
 from ids_peak import ids_peak_ipl_extension
 
-import squid.logging
-log = squid.logging.get_logger(__name__)
+import software.squid.logging
+log = software.squid.logging.get_logger(__name__)
 
 def get_sn_by_model(model_name):
     ids_peak.Library.Initialize()

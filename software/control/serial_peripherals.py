@@ -4,8 +4,8 @@ import time
 from typing import Tuple, Optional
 import struct
 
-import squid.logging
-log = squid.logging.get_logger(__name__)
+import software.squid.logging
+log = software.squid.logging.get_logger(__name__)
 
 class SerialDevice:
     """

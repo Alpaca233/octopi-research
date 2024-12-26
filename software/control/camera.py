@@ -3,11 +3,11 @@ import cv2
 import time
 import numpy as np
 try:
-    import control.gxipy as gx
+    import software.control.gxipy as gx
 except:
     print('gxipy import error')
 
-from control._def import *
+from software.control._def import *
 
 def get_sn_by_model(model_name):
     try:

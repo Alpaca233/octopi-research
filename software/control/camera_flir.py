@@ -3,7 +3,7 @@ import cv2
 import time
 import numpy as np
 import PySpin
-from control._def import *
+from software.control._def import *
 
 class ReadType:
     """

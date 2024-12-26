@@ -2,12 +2,12 @@ import ctypes
 from ctypes import *
 
 import squid.logging
-from control.TUCam import *
+from software.control.TUCam import *
 import numpy as np
 import threading
 import time
 
-from control._def import *
+from software.control._def import *
 
 def get_sn_by_model(model_name):
     TUCAMINIT = TUCAM_INIT(0, './control'.encode('utf-8'))
