@@ -56,7 +56,7 @@ class Microscope(QObject):
 
     def initialize_microcontroller(self, is_simulation):
         if is_simulation:
-            self.microcontroller = microcontroller.Microcontroller(existing_serial=control.microcontroller.SimSerial())
+            self.microcontroller = microcontroller.Microcontroller(existing_serial=software.control.microcontroller.SimSerial())
         else:
             self.microcontroller = microcontroller.Microcontroller(version=CONTROLLER_VERSION, sn=CONTROLLER_SN)
         
@@ -158,17 +158,18 @@ class Microscope(QObject):
         self.liveController.set_microscope_mode(self.configurationManager.configurations[0])
         self.navigationController.move_z_to(z_pos_um / 1000)
 
+        os.makedirs(os.path.abspath(path), exist_ok=True)
+
         for i in range(len(xy_coordinates_mm)):
             self.navigationController.move_x_to(xy_coordinates_mm[i][0])
             self.navigationController.move_y_to(xy_coordinates_mm[i][1])
             self.waitForMicrocontroller()
             image = self.acquire_image()
-            filename = os.path.join(path, fov_ids[i])
-            self.save_image(path, filename, image)
+            filename = os.path.join(path, str(i) + '_' + fov_ids[i] + '.tiff')
+            self.save_image(filename, image)
 
-    def save_image(self, path, filename, image):
-        saving_path = os.path.join(path, filename + '.tiff')
-        iio.imwrite(saving_path,image)
+    def save_image(self, saving_path, image):
+        iio.imwrite(saving_path, image)
 
     def get_scan_coordinates_from_selected_wells(self, wellplate_format, selected, scan_size_mm=None, overlap_percent=10):
         wellplate_settings = self.get_wellplate_settings(wellplate_format)

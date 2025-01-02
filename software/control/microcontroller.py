@@ -148,7 +148,7 @@ class Microcontroller:
     MAX_RETRY_COUNT = 5
 
     def __init__(self, version='Arduino Due', sn=None, existing_serial=None):
-        self.log = squid.logging.get_logger(self.__class__.__name__)
+        self.log = software.squid.logging.get_logger(self.__class__.__name__)
 
         self.tx_buffer_length = MicrocontrollerDef.CMD_LENGTH
         self.rx_buffer_length = MicrocontrollerDef.MSG_LENGTH

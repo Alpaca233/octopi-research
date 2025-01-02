@@ -6,9 +6,9 @@ from configparser import ConfigParser
 import json
 import csv
 
-import squid.logging
+import software.squid.logging
 
-log = squid.logging.get_logger(__name__)
+log = software.squid.logging.get_logger(__name__)
 
 
 def conf_attribute_reader(string_value):
@@ -631,8 +631,8 @@ def read_sample_formats_csv(file_path):
 
 def load_formats():
     """Load formats, prioritizing cache for sample formats."""
-    cache_path = 'cache'
-    default_path = 'objective_and_sample_formats'
+    cache_path = 'src/software/cache'
+    default_path = 'src/software/objective_and_sample_formats'
 
     # Load objectives (from default location)
     objectives = read_objectives_csv(os.path.join(default_path, 'objectives.csv'))
@@ -687,7 +687,7 @@ try:
 except FileNotFoundError:
     CACHED_CONFIG_FILE_PATH = None
 
-config_files = glob.glob('.' + '/' + 'configuration*.ini')
+config_files = glob.glob('src/software' + '/' + 'configuration*.ini')
 if config_files:
     if len(config_files) > 1:
         if CACHED_CONFIG_FILE_PATH in config_files:
@@ -723,7 +723,7 @@ if config_files:
         myclass = locals()[classkey]
         populate_class_from_dict(myclass,pop_items)
     
-    with open("cache/config_file_path.txt", 'w') as file:
+    with open("src/software/cache/config_file_path.txt", 'w') as file:
         file.write(config_files[0])
     CACHED_CONFIG_FILE_PATH = config_files[0]
 else:

@@ -78,7 +78,7 @@ class Camera(object):
         return (w * 24 + 31) // 32 * 4
 
     def __init__(self,sn=None,resolution=(3104,2084),is_global_shutter=False,rotate_image_angle=None,flip_image=None):
-        self.log = squid.logging.get_logger(self.__class__.__name__)
+        self.log = software.squid.logging.get_logger(self.__class__.__name__)
 
         # many to be purged
         self.sn = sn
@@ -792,7 +792,7 @@ class Camera(object):
 class Camera_Simulation(object):
     
     def __init__(self,sn=None,is_global_shutter=False,rotate_image_angle=None,flip_image=None):
-        self.log = squid.logging.get_logger(self.__class__.__name__)
+        self.log = software.squid.logging.get_logger(self.__class__.__name__)
         # many to be purged
         self.sn = sn
         self.is_global_shutter = is_global_shutter
@@ -860,6 +860,8 @@ class Camera_Simulation(object):
         # 14 bits: 64 
         # 16 bits: 256
         self.blacklevel_factor = 1
+
+        self.new_image_callback_external = None
 
     def open(self,index=0):
         pass
