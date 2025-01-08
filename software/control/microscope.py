@@ -43,6 +43,8 @@ class Microscope(QObject):
             elif USE_OPTOSPIN_EMISSION_FILTER_WHEEL:
                 self.emission_filter_wheel = microscope.emission_filter_wheel
 
+            self.home_xyz()
+
     def initialize_camera(self, is_simulation):
         if is_simulation:
             self.camera = camera.Camera_Simulation(rotate_image_angle=ROTATE_IMAGE_ANGLE, flip_image=FLIP_IMAGE)
@@ -58,7 +60,7 @@ class Microscope(QObject):
         if is_simulation:
             self.microcontroller = microcontroller.Microcontroller(existing_serial=software.control.microcontroller.SimSerial())
         else:
-            self.microcontroller = microcontroller.Microcontroller(version=CONTROLLER_VERSION, sn=CONTROLLER_SN)
+            self.microcontroller = microcontroller.Microcontroller(version=CONTROLLER_VERSION)
         
         self.microcontroller.reset()
         time.sleep(0.5)
@@ -85,8 +87,8 @@ class Microscope(QObject):
             self.emission_filter_wheel = serial_peripherals.Optospin(SN=FILTER_CONTROLLER_SERIAL_NUMBER)
             self.emission_filter_wheel.set_speed(OPTOSPIN_EMISSION_FILTER_WHEEL_SPEED_HZ)
 
-    def set_channel(self,channel):
-        self.liveController.set_channel(channel)
+    # ==========================================================================================================
+    # Temporary implementation used for SiLA2 connector. Just for making things work. Needs to be updated when refactoring is done
 
     def acquire_image(self):
         # turn on illumination and send trigger
@@ -110,52 +112,17 @@ class Microscope(QObject):
 
     def to_loading_position(self):
         # retract z
-        timestamp_start = time.time()
-        self.slidePositionController.z_pos = self.navigationController.z_pos # zpos at the beginning of the scan
-        self.navigationController.move_z_to(OBJECTIVE_RETRACTED_POS_MM)
-        self.waitForMicrocontroller()
-        print('z retracted')
-        self.slidePositionController.objective_retracted = True
+        self.move_z_to(1.0)
+        self.move_x_to(30.0)
+        self.move_y_to(30.0)
 
-        # for wellplates
-        # reset limits
-        self.navigationController.set_x_limit_pos_mm(100)
-        self.navigationController.set_x_limit_neg_mm(-100)
-        self.navigationController.set_y_limit_pos_mm(100)
-        self.navigationController.set_y_limit_neg_mm(-100)
-        # home for the first time
-        if self.slidePositionController.homing_done == False:
-            print('running homing first')
-            timestamp_start = time.time()
-            # x needs to be at > + 20 mm when homing y
-            self.navigationController.move_x(20)
-            self.waitForMicrocontroller()
-            # home y
-            self.navigationController.home_y()
-            self.waitForMicrocontroller()
-            self.navigationController.zero_y()
-            # home x
-            self.navigationController.home_x()
-            self.waitForMicrocontroller()
-            self.navigationController.zero_x()
-            self.slidePositionController.homing_done = True
-        # homing done previously
-        else:
-            timestamp_start = time.time()
-            self.navigationController.move_x_to(20)
-            self.waitForMicrocontroller()
-            self.navigationController.move_y_to(SLIDE_POSITION.LOADING_Y_MM)
-            self.waitForMicrocontroller()
-            self.navigationController.move_x_to(SLIDE_POSITION.LOADING_X_MM)
-            self.waitForMicrocontroller()
-        # set limits again
-        self.navigationController.set_x_limit_pos_mm(SOFTWARE_POS_LIMIT.X_POSITIVE)
-        self.navigationController.set_x_limit_neg_mm(SOFTWARE_POS_LIMIT.X_NEGATIVE)
-        self.navigationController.set_y_limit_pos_mm(SOFTWARE_POS_LIMIT.Y_POSITIVE)
-        self.navigationController.set_y_limit_neg_mm(SOFTWARE_POS_LIMIT.Y_NEGATIVE)
+    def move_to_position(self, x, y, z):
+        self.move_x_to(x)
+        self.move_y_to(y)
+        self.move_z_to(z)
 
-    def perform_scanning(self, path, z_pos_um, xy_coordinates_mm, fov_ids):
-        self.liveController.set_microscope_mode(self.configurationManager.configurations[0])
+    def perform_scanning(self, path, z_pos_um, channels, xy_coordinates_mm, fov_ids):
+        self.camera.start_streaming()
         self.navigationController.move_z_to(z_pos_um / 1000)
 
         os.makedirs(os.path.abspath(path), exist_ok=True)
@@ -164,9 +131,13 @@ class Microscope(QObject):
             self.navigationController.move_x_to(xy_coordinates_mm[i][0])
             self.navigationController.move_y_to(xy_coordinates_mm[i][1])
             self.waitForMicrocontroller()
-            image = self.acquire_image()
-            filename = os.path.join(path, str(i) + '_' + fov_ids[i] + '.tiff')
-            self.save_image(filename, image)
+            for j in range(len(channels)):
+                self.liveController.set_microscope_mode(self.configurationManager.configurations[int(channels[j])])
+                image = self.acquire_image()
+                filename = os.path.join(path, str(i) + '_' + fov_ids[i] + '.tiff')
+                self.save_image(filename, image)
+
+        self.camera.stop_streaming()
 
     def save_image(self, saving_path, image):
         iio.imwrite(saving_path, image)
@@ -189,7 +160,7 @@ class Microscope(QObject):
         for (x, y), n in zip(center_coordinates, well_names):
             coords = self.create_region_coordinates(x, y, scan_size_mm, overlap_percent, well_shape)
             scan_coordinates.extend(coords)
-            names.extend(n * len(coords))
+            names.extend([n] * len(coords))
 
         return scan_coordinates, names
 
