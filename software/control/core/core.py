@@ -1387,6 +1387,7 @@ class MultiPointWorker(QObject):
         self.microcontroller = self.multiPointController.microcontroller
         self.usb_spectrometer = self.multiPointController.usb_spectrometer
         self.stage: squid.abc.AbstractStage = self.multiPointController.stage
+        self.xarm = self.multiPointController.roboticArm
         self.liveController = self.multiPointController.liveController
         self.autofocusController = self.multiPointController.autofocusController
         self.configurationManager = self.multiPointController.configurationManager
@@ -1529,7 +1530,22 @@ class MultiPointWorker(QObject):
         # init z parameters, z range
         self.initialize_z_stack()
 
+        # move to loading position
+        #self.stage.move_z_to(1.0, blocking=True)
+        self.stage.move_x_to(40, blocking=True)
+        self.stage.move_y_to(78, blocking=True)
+
+        self.xarm.load_plate()
+
         self.run_coordinate_acquisition(current_path)
+
+        # move to loading position
+        #self.stage.move_z_to(1.0, blocking=True)
+        self.stage.move_x_to(40, blocking=True)
+        self.stage.move_y_to(78, blocking=True)
+
+        self.xarm.unload_plate()
+        self.xarm.reset()
 
         # finished region scan
         self.coordinates_pd.to_csv(os.path.join(current_path, "coordinates.csv"), index=False, header=True)
@@ -2174,6 +2190,7 @@ class MultiPointController(QObject):
         camera,
         stage: AbstractStage,
         microcontroller: Microcontroller,
+        roboticArm,
         liveController,
         autofocusController,
         configurationManager,
@@ -2188,6 +2205,7 @@ class MultiPointController(QObject):
             self.processingHandler = ProcessingHandler()
         self.stage = stage
         self.microcontroller = microcontroller
+        self.roboticArm = roboticArm
         self.liveController = liveController
         self.autofocusController = autofocusController
         self.configurationManager = configurationManager

@@ -328,6 +328,107 @@ class ConfigEditorBackwardsCompatible(ConfigEditor):
         self.close()
 
 
+class RoboticArmWidget(QWidget):
+    def __init__(self, xarm=None):
+        super(RoboticArmWidget, self).__init__()
+
+        self.robotic_arm = xarm
+        self.init_ui()
+
+        self.spinbox_num_plates.setValue(1)  # Default value for demo
+        if self.robotic_arm:
+            self.robotic_arm.reset(False)
+
+    def init_ui(self):
+        # Create main layout
+        layout = QGridLayout(self)
+
+        # First row - Number of plates input and Initialize button
+        plates_layout = QHBoxLayout()
+        plates_layout.addWidget(QLabel("Number of Plates:"))
+
+        self.spinbox_num_plates = QSpinBox()
+        self.spinbox_num_plates.setRange(1, 100)  # Assuming max 100 plates
+        plates_layout.addWidget(self.spinbox_num_plates)
+
+        self.btn_initialize = QPushButton("Initialize")
+        plates_layout.addWidget(self.btn_initialize)
+
+        # Add first row to main layout
+        layout.addLayout(plates_layout, 0, 0, 1, 3)
+
+        # Second row - Control buttons
+        self.btn_load_plate = QPushButton("Load Plate")
+        self.btn_unload_plate = QPushButton("Unload Plate")
+        self.btn_reset = QPushButton("Reset")
+        
+        # Add second row to main layout
+        layout.addWidget(self.btn_load_plate, 1, 0)
+        layout.addWidget(self.btn_unload_plate, 1, 1)
+        layout.addWidget(self.btn_reset, 1, 2)
+
+        # Set initial button states
+        self.btn_load_plate.setEnabled(False)
+        self.btn_unload_plate.setEnabled(False)
+        self.btn_reset.setEnabled(False)
+
+        # Connect signals
+        self.btn_initialize.clicked.connect(self.initialize_robot)
+        self.btn_load_plate.clicked.connect(self.load_plate)
+        self.btn_unload_plate.clicked.connect(self.unload_plate)
+        self.btn_reset.clicked.connect(self.reset_arm)
+
+        # Set layout
+        self.setLayout(layout)
+
+    def initialize_robot(self):
+        """Initialize the robot arm with the specified number of plates and move to prepare position"""
+        # Value set to 4 for demo (temporary)
+        self.robotic_arm.prepare()
+        self.btn_load_plate.setEnabled(True)
+        self.btn_unload_plate.setEnabled(True)
+        self.btn_reset.setEnabled(True)
+
+    def load_plate(self):
+        """Load the next plate onto the microscope"""
+        if self.robotic_arm:
+            try:
+                self.robotic_arm.load_plate()
+            except Exception as e:
+                print(f"Error loading plate: {e}")
+
+    def unload_plate(self):
+        """Unload the current plate from the microscope"""
+        if self.robotic_arm:
+            try:
+                self.robotic_arm.unload_plate()
+            except Exception as e:
+                print(f"Error unloading plate: {e}")
+
+    def reset_arm(self):
+        """Reset the robot arm to its initial position and set current_plate to 0"""
+        if self.robotic_arm:
+            try:
+                self.robotic_arm.reset()
+
+                # Re-enable initialization controls
+                self.spinbox_num_plates.setEnabled(True)
+                self.btn_initialize.setEnabled(True)
+                
+                # Disable control buttons
+                self.btn_load_plate.setEnabled(False)
+                self.btn_unload_plate.setEnabled(False)
+                self.btn_reset.setEnabled(False)
+
+            except Exception as e:
+                print(f"Error resetting arm: {e}")
+
+    def closeEvent(self, event):
+        if self.stitcherThread is not None:
+            self.robotic_arm.disconnect()
+        super().closeEvent(event)
+
+
 class SpinningDiskConfocalWidget(QWidget):
     def __init__(self, xlight, config_manager=None):
         super(SpinningDiskConfocalWidget, self).__init__()

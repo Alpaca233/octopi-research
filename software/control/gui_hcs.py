@@ -27,6 +27,8 @@ log = squid.logging.get_logger(__name__)
 
 import control.filterwheel as filterwheel
 
+from control.xArm.RoboticArm import RoboticArm
+
 if USE_PRIOR_STAGE:
     import squid.stage.prior
 else:
@@ -139,7 +141,7 @@ class HighContentScreeningGui(QMainWindow):
     def __init__(self, is_simulation=False, live_only_mode=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.microcontroller: Optional[microcontroller.Microcontroller] = None
-
+        self.xarm = None
         self.log = squid.logging.get_logger(self.__class__.__name__)
         self.live_only_mode = live_only_mode or LIVE_ONLY_MODE
         self.is_live_scan_grid_on = False
@@ -242,6 +244,7 @@ class HighContentScreeningGui(QMainWindow):
             self.camera,
             self.stage,
             self.microcontroller,
+            self.xarm,
             self.liveController,
             self.autofocusController,
             self.configurationManager,
@@ -266,6 +269,7 @@ class HighContentScreeningGui(QMainWindow):
                 self.camera,
                 self.stage,
                 self.microcontroller,
+                self.xarm,
                 self.liveController,
                 self.autofocusController,
                 self.configurationManager,
@@ -318,6 +322,8 @@ class HighContentScreeningGui(QMainWindow):
             self.emission_filter_wheel = serial_peripherals.Optospin_Simulation(SN=None)
         if USE_SQUID_FILTERWHEEL:
             self.squid_filter_wheel = filterwheel.SquidFilterWheelWrapper_Simulation(None)
+        if USE_XARM:
+            self.xarm = None
 
     def loadHardwareObjects(self):
         # Initialize hardware objects
@@ -414,6 +420,14 @@ class HighContentScreeningGui(QMainWindow):
                 self.log.error("Error initializing Optospin Emission Filter Wheel")
                 raise
 
+        if USE_XARM:
+            try:
+                self.xarm = RoboticArm()
+                self.xarm.prepare()
+            except Exception:
+                self.log.error("Error initializing XArm")
+                raise
+
     def setupHardware(self):
         # Setup hardware components
         if USE_ZABER_EMISSION_FILTER_WHEEL:
@@ -476,6 +490,8 @@ class HighContentScreeningGui(QMainWindow):
 
     def loadWidgets(self):
         # Initialize all GUI widgets
+        if USE_XARM:
+            self.xArmWidget = widgets.RoboticArmWidget(self.xarm)
         if ENABLE_SPINNING_DISK_CONFOCAL:
             self.spinningDiskConfocalWidget = widgets.SpinningDiskConfocalWidget(self.xlight, self.configurationManager)
         if ENABLE_NL5:
@@ -710,6 +726,8 @@ class HighContentScreeningGui(QMainWindow):
             self.cameraTabWidget.addTab(self.nl5Wdiget, "NL5")
         if ENABLE_SPINNING_DISK_CONFOCAL:
             self.cameraTabWidget.addTab(self.spinningDiskConfocalWidget, "Confocal")
+        if USE_XARM:
+            self.cameraTabWidget.addTab(self.xArmWidget, "RoboticArm")
         if USE_ZABER_EMISSION_FILTER_WHEEL or USE_OPTOSPIN_EMISSION_FILTER_WHEEL:
             self.cameraTabWidget.addTab(self.filterControllerWidget, "Emission Filter")
         if USE_SQUID_FILTERWHEEL:
