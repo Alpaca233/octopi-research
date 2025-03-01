@@ -81,6 +81,7 @@ class ChannelMode(BaseXmlModel, tag="mode"):
     analog_gain: float = attr(name="AnalogGain")
     illumination_source: int = attr(name="IlluminationSource")
     illumination_intensity: float = attr(name="IlluminationIntensity")
+    color_map: Optional[str] = attr(name="ColorMap", default=None)
     camera_sn: Optional[str] = attr(name="CameraSN", default=None)
     z_offset: float = attr(name="ZOffset")
     emission_filter_position: int = attr(name="EmissionFilterPosition", default=1)
@@ -142,50 +143,50 @@ def generate_default_configuration(filename: str) -> None:
         ChannelMode(
             id="5",
             name="Fluorescence 405 nm Ex",
-            exposure_time=100,
+            exposure_time=25,
             analog_gain=10,
             illumination_source=11,
-            illumination_intensity=100,
+            illumination_intensity=20,
             camera_sn="",
             z_offset=0.0,
         ),
         ChannelMode(
             id="6",
             name="Fluorescence 488 nm Ex",
-            exposure_time=100,
+            exposure_time=25,
             analog_gain=10,
             illumination_source=12,
-            illumination_intensity=100,
+            illumination_intensity=20,
             camera_sn="",
             z_offset=0.0,
         ),
         ChannelMode(
             id="7",
             name="Fluorescence 638 nm Ex",
-            exposure_time=100,
+            exposure_time=25,
             analog_gain=10,
             illumination_source=13,
-            illumination_intensity=100,
+            illumination_intensity=20,
             camera_sn="",
             z_offset=0.0,
         ),
         ChannelMode(
             id="8",
             name="Fluorescence 561 nm Ex",
-            exposure_time=100,
+            exposure_time=25,
             analog_gain=10,
             illumination_source=14,
-            illumination_intensity=100,
+            illumination_intensity=20,
             camera_sn="",
             z_offset=0.0,
         ),
         ChannelMode(
             id="12",
             name="Fluorescence 730 nm Ex",
-            exposure_time=50,
+            exposure_time=25,
             analog_gain=10,
             illumination_source=15,
-            illumination_intensity=100,
+            illumination_intensity=20,
             camera_sn="",
             z_offset=0.0,
         ),
