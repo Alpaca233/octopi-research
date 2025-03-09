@@ -446,9 +446,12 @@ class LiveController(QObject):
         self.fps_trigger = 1
         self.timer_trigger_interval = (1 / self.fps_trigger) * 1000
 
+        self.trigger_timer_ready = False
+        self.camera_exposure_ready = False
+
         self.timer_trigger = QTimer()
         self.timer_trigger.setInterval(int(self.timer_trigger_interval))
-        self.timer_trigger.timeout.connect(self.trigger_acquisition)
+        self.timer_trigger.timeout.connect(self.set_trigger_timer_ready)
 
         self.trigger_ID = -1
 
@@ -643,6 +646,20 @@ class LiveController(QObject):
             if self.for_displacement_measurement:
                 self.microcontroller.set_pin_level(MCU_PINS.AF_LASER, 0)
 
+    def set_trigger_timer_ready(self):
+        self.trigger_timer_ready = True
+        self.check_trigger_ready()
+    
+    def set_camera_exposure_ready(self):
+        self.camera_exposure_ready = True
+        self.check_trigger_ready()
+    
+    def check_trigger_ready(self):
+        if self.trigger_timer_ready and self.camera_exposure_ready:
+            self.trigger_timer_ready = False
+            self.camera_exposure_ready = False
+            self.trigger_acquisition()
+
     # software trigger related
     def trigger_acquisition(self):
         if self.trigger_mode == TriggerMode.SOFTWARE:
@@ -747,6 +764,7 @@ class LiveController(QObject):
 
     # slot
     def on_new_frame(self):
+        self.set_camera_exposure_ready()
         if self.fps_trigger <= 5:
             if self.control_illumination and self.illumination_on == True:
                 self.turn_off_illumination()
