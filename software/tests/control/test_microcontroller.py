@@ -180,3 +180,23 @@ def test_microcontroller_reconnects_serial():
     micro.move_z_usteps(3 * some_pos)
     wait()
     assert_pos_almost_equal((some_pos, 2 * some_pos, 3 * some_pos, 0), micro.get_pos())
+
+
+def test_home_directions():
+    test_micro = get_test_micro()
+
+    dirs = (
+        control.microcontroller.HomingDirection.HOMING_DIRECTION_FORWARD,
+        control.microcontroller.HomingDirection.HOMING_DIRECTION_BACKWARD,
+    )
+
+    home_methods = (test_micro.home_x, test_micro.home_y, test_micro.home_z, test_micro.home_w, test_micro.home_theta)
+
+    def wait():
+        test_micro.wait_till_operation_is_completed()
+
+    for d in dirs:
+        for hm in home_methods:
+            hm(homing_direction=d)
+            wait()
+            assert test_micro.last_command[3] == d.value

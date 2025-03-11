@@ -1356,6 +1356,7 @@ class MultiPointWorker(QObject):
         self.scan_region_names = self.multiPointController.scan_region_names
         self.z_stacking_config = self.multiPointController.z_stacking_config  # default 'from bottom'
         self.z_range = self.multiPointController.z_range
+        self.fluidics = self.multiPointController.fluidics
 
         self.microscope = self.multiPointController.parent
         self.performance_mode = self.microscope and self.microscope.performance_mode
@@ -1408,7 +1409,18 @@ class MultiPointWorker(QObject):
                     self._log.debug("In run, abort_acquisition_requested=True")
                     break
 
+                if self.fluidics and self.multiPointController.use_fluidics:
+                    self.fluidics.update_port(self.time_point)  # use the port in PORT_LIST
+                    # For MERFISH, before imaging, run the first 3 sequences (Add probe, wash buffer, imaging buffer)
+                    self.fluidics.run_sequences(section=BEFORE_IMAGING_SEQUENCES)
+                    self.fluidics.wait_for_completion()
+
                 self.run_single_time_point()
+
+                if self.fluidics and self.multiPointController.use_fluidics:
+                    # For MERFISH, after imaging, run the following 2 sequences (Cleavage buffer, SSC rinse)
+                    self.fluidics.run_sequences(section=AFTER_IMAGING_SEQUENCES)
+                    self.fluidics.wait_for_completion()
 
                 self.time_point = self.time_point + 1
                 if self.dt == 0:  # continous acquisition
@@ -1601,7 +1613,7 @@ class MultiPointWorker(QObject):
             print(f"Acquiring image: ID={file_ID}, Metadata={metadata}")
 
             # laser af characterization mode
-            if self.microscope.laserAutofocusController.characterization_mode:
+            if self.do_reflection_af and self.microscope.laserAutofocusController.characterization_mode:
                 image = self.microscope.laserAutofocusController.get_image()
                 saving_path = os.path.join(current_path, file_ID + "_laser af camera" + ".bmp")
                 iio.imwrite(saving_path, image)
@@ -1896,20 +1908,21 @@ class MultiPointWorker(QObject):
                 elif MULTIPOINT_BF_SAVING_OPTION == "Green Channel Only":
                     image = image[:, :, 1]
 
-        if Acquisition.PSEUDO_COLOR:
+        if SAVE_IN_PSEUDO_COLOR:
             image = self.return_pseudo_colored_image(image, config)
 
-        if Acquisition.MERGE_CHANNELS:
+        if MERGE_CHANNELS:
             self._save_merged_image(image, file_ID, current_path)
 
         iio.imwrite(saving_path, image)
 
     def _save_merged_image(self, image, file_ID, current_path):
         self.image_count += 1
+
         if self.image_count == 1:
             self.merged_image = image
         else:
-            self.merged_image += image
+            self.merged_image = np.maximum(self.merged_image, image)
 
             if self.image_count == len(self.selected_configurations):
                 if image.dtype == np.uint16:
@@ -1919,19 +1932,22 @@ class MultiPointWorker(QObject):
 
                 iio.imwrite(saving_path, self.merged_image)
                 self.image_count = 0
+
         return
 
     def return_pseudo_colored_image(self, image, config):
         if "405 nm" in config.name:
-            image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["405"]["hex"])
+            image = self.grayscale_to_rgb(image, CHANNEL_COLORS_MAP["405"]["hex"])
         elif "488 nm" in config.name:
-            image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["488"]["hex"])
+            image = self.grayscale_to_rgb(image, CHANNEL_COLORS_MAP["488"]["hex"])
         elif "561 nm" in config.name:
-            image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["561"]["hex"])
+            image = self.grayscale_to_rgb(image, CHANNEL_COLORS_MAP["561"]["hex"])
         elif "638 nm" in config.name:
-            image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["638"]["hex"])
+            image = self.grayscale_to_rgb(image, CHANNEL_COLORS_MAP["638"]["hex"])
         elif "730 nm" in config.name:
-            image = self.grayscale_to_rgb(image, Acquisition.PSEUDO_COLOR_MAP["730"]["hex"])
+            image = self.grayscale_to_rgb(image, CHANNEL_COLORS_MAP["730"]["hex"])
+        else:
+            image = np.stack([image] * 3, axis=-1)
 
         return image
 
@@ -1949,7 +1965,7 @@ class MultiPointWorker(QObject):
                 self.napari_layers_init.emit(image.shape[0], image.shape[1], image.dtype)
             pos = self.stage.get_pos()
             objective_magnification = str(int(self.objectiveStore.get_current_objective_info()["magnification"]))
-            self.napari_layers_update.emit(image, pos.x_mm, pos.y_mm, k, objective_magnification + "x_" + config_name)
+            self.napari_layers_update.emit(image, pos.x_mm, pos.y_mm, k, objective_magnification + "x " + config_name)
 
     def handle_dpc_generation(self, current_round_images):
         keys_to_check = [
@@ -2110,6 +2126,7 @@ class MultiPointController(QObject):
         channelConfigurationManager,
         usb_spectrometer=None,
         scanCoordinates=None,
+        fluidics=None,
         parent=None,
     ):
         QObject.__init__(self)
@@ -2162,6 +2179,8 @@ class MultiPointController(QObject):
         self.old_images_per_page = 1
         z_mm_current = self.stage.get_pos().z_mm
         self.z_range = [z_mm_current, z_mm_current + self.deltaZ * (self.NZ - 1)]  # [start_mm, end_mm]
+        self.use_fluidics = False
+        self.fluidics = fluidics
 
         try:
             if self.parent is not None:
@@ -2246,6 +2265,9 @@ class MultiPointController(QObject):
 
     def set_base_path(self, path):
         self.base_path = path
+
+    def set_use_fluidics(self, use_fluidics):
+        self.use_fluidics = use_fluidics
 
     def start_new_experiment(self, experiment_ID):  # @@@ to do: change name to prepare_folder_for_new_experiment
         # generate unique experiment ID
@@ -2573,7 +2595,7 @@ class MultiPointController(QObject):
 
     def validate_acquisition_settings(self) -> bool:
         """Validate settings before starting acquisition"""
-        if self.do_reflection_af and not self.parent.laserAutofocusController.has_reference:
+        if self.do_reflection_af and not self.parent.laserAutofocusController.laser_af_properties.has_reference:
             QMessageBox.warning(
                 None,
                 "Laser Autofocus Not Ready",
@@ -3740,18 +3762,20 @@ class LaserAFSettingManager:
     def get_laser_af_settings(self) -> Dict[str, Any]:
         return self.autofocus_configurations
 
-    def update_laser_af_settings(self, objective: str, updates: Dict[str, Any]) -> None:
+    def update_laser_af_settings(
+        self, objective: str, updates: Dict[str, Any], crop_image: Optional[np.ndarray] = None
+    ) -> None:
         if objective not in self.autofocus_configurations:
             self.autofocus_configurations[objective] = LaserAFConfig(**updates)
         else:
             config = self.autofocus_configurations[objective]
             self.autofocus_configurations[objective] = config.model_copy(update=updates)
+        if crop_image is not None:
+            self.autofocus_configurations[objective].set_reference_image(crop_image)
 
 
-class ConfigurationManager(QObject):
+class ConfigurationManager:
     """Main configuration manager that coordinates channel and autofocus configurations."""
-
-    signal_profile_loaded = Signal()
 
     def __init__(
         self,
@@ -3801,8 +3825,6 @@ class ConfigurationManager(QObject):
                 self.channel_manager.load_configurations(objective)
             if self.laser_af_manager:
                 self.laser_af_manager.load_configurations(objective)
-
-        self.signal_profile_loaded.emit()
 
     def create_new_profile(self, profile_name: str) -> None:
         """Create a new profile using current configurations."""
@@ -4647,15 +4669,14 @@ class LaserAutofocusController(QObject):
         self.is_initialized = False
 
         self.laser_af_properties = LaserAFConfig()
+        self.reference_crop = None
+
         self.x_width = 3088
         self.y_width = 2064
 
         self.spot_spacing_pixels = None  # spacing between the spots from the two interfaces (unit: pixel)
 
         self.image = None  # for saving the focus camera image for debugging when centroid cannot be found
-
-        self.has_reference = False  # Track if reference has been set
-        self.reference_crop = None  # for saving the reference image for cross-correlation check
 
         # Load configurations if provided
         if self.laserAFSettingManager:
@@ -4675,6 +4696,9 @@ class LaserAutofocusController(QObject):
         )
 
         self.laser_af_properties = adjusted_config
+
+        if self.laser_af_properties.has_reference:
+            self.reference_crop = self.laser_af_properties.reference_image_cropped
 
         self.camera.set_ROI(
             self.laser_af_properties.x_offset,
@@ -4704,10 +4728,6 @@ class LaserAutofocusController(QObject):
 
             # Initialize with loaded config
             self.initialize_manual(config)
-
-            # read self.has_reference
-            self.has_reference = config.has_reference
-            # TODO: update self.reference_crop
 
     def initialize_auto(self) -> bool:
         """Automatically initialize laser autofocus by finding the spot and calibrating.
@@ -4743,11 +4763,7 @@ class LaserAutofocusController(QObject):
         self.microcontroller.turn_off_AF_laser()
         self.microcontroller.wait_till_operation_is_completed()
 
-        # Clear reference
-        self.has_reference = False
-        self.reference_crop = None
-
-        # Set up ROI around spot
+        # Set up ROI around spot and clear reference
         config = self.laser_af_properties.model_copy(
             update={
                 "x_offset": x - self.laser_af_properties.width / 2,
@@ -4755,6 +4771,8 @@ class LaserAutofocusController(QObject):
                 "has_reference": False,
             }
         )
+        self.reference_crop = None
+        config.set_reference_image(None)
         self._log.info(f"Laser spot location on the full sensor is ({int(x)}, {int(y)})")
 
         self.initialize_manual(config)
@@ -4826,10 +4844,11 @@ class LaserAutofocusController(QObject):
         else:
             pixel_to_um = self.laser_af_properties.pixel_to_um_calibration_distance / (x1 - x0)
         self._log.info(f"Pixel to um conversion factor is {pixel_to_um:.3f} um/pixel")
+        calibration_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Update config with new calibration values
         self.laser_af_properties = self.laser_af_properties.model_copy(
-            update={"pixel_to_um": pixel_to_um, "x_reference": (x1 + x0) / 2}
+            update={"pixel_to_um": pixel_to_um, "calibration_timestamp": calibration_timestamp}
         )
 
         # Update cache
@@ -4882,7 +4901,7 @@ class LaserAutofocusController(QObject):
         Returns:
             bool: True if move was successful, False if measurement failed or displacement was out of range
         """
-        if not self.has_reference:
+        if not self.laser_af_properties.has_reference:
             self._log.warning("Cannot move to target - reference not set")
             return False
 
@@ -4966,9 +4985,6 @@ class LaserAutofocusController(QObject):
             return False
 
         x, y = result
-        self.laser_af_properties = self.laser_af_properties.model_copy(
-            update={"x_reference": x, "has_reference": self.has_reference}
-        )
 
         # Store cropped and normalized reference image
         center_y = int(reference_image.shape[0] / 2)
@@ -4983,12 +4999,15 @@ class LaserAutofocusController(QObject):
         self.signal_displacement_um.emit(0)
         self._log.info(f"Set reference position to ({x:.1f}, {y:.1f})")
 
-        self.has_reference = True
+        self.laser_af_properties = self.laser_af_properties.model_copy(
+            update={"x_reference": x, "has_reference": True}
+        )  # We don't keep reference_crop here to avoid serializing it
 
-        # Update cache
+        # Update cached file. reference_crop needs to be saved.
         self.laserAFSettingManager.update_laser_af_settings(
             self.objectiveStore.current_objective,
-            {"x_reference": x + self.laser_af_properties.x_offset, "has_reference": self.has_reference},
+            {"x_reference": x + self.laser_af_properties.x_offset, "has_reference": True},
+            crop_image=self.reference_crop,
         )
         self.laserAFSettingManager.save_configurations(self.objectiveStore.current_objective)
 
@@ -5003,7 +5022,6 @@ class LaserAutofocusController(QObject):
         status and loads the cached configuration for the new objective.
         """
         self.is_initialized = False
-        self.has_reference = False
         self.load_cached_configuration()
 
     def _verify_spot_alignment(self) -> Tuple[bool, float]:
@@ -5033,11 +5051,11 @@ class LaserAutofocusController(QObject):
 
         if self.reference_crop is None:
             self._log.warning("No reference crop stored")
-            return False
+            return False, 0.0
 
         if current_image is None:
             self._log.error("Failed to get images for cross-correlation check")
-            return False
+            return False, 0.0
 
         # Crop and normalize current image
         center_x = int(self.laser_af_properties.x_reference)
@@ -5059,7 +5077,7 @@ class LaserAutofocusController(QObject):
         # Check if correlation exceeds threshold
         if correlation < self.laser_af_properties.correlation_threshold:
             self._log.warning("Cross correlation check failed - spots not well aligned")
-            return False
+            return False, correlation
 
         return True, correlation
 

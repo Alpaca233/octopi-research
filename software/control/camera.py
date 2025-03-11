@@ -603,7 +603,7 @@ class Camera_Simulation(object):
         return self.current_frame
         """
         # read from disk for laser af debugging
-        image = cv2.imread("control/tests/data/laser_af_camera.png")[:, :, 0]
+        image = cv2.imread("tests/data/laser_af_camera.png")[:, :, 0]
         height, width = image.shape
         return image + np.random.randint(0, 10, size=(height, width), dtype=np.uint8)
         """
