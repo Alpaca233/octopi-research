@@ -107,7 +107,6 @@ class ChannelMode(BaseXmlModel, tag="mode"):
     analog_gain: float = attr(name="AnalogGain")
     illumination_source: int = attr(name="IlluminationSource")
     illumination_intensity: float = attr(name="IlluminationIntensity")
-    color_map: Optional[str] = attr(name="ColorMap", default=None)
     camera_sn: Optional[str] = attr(name="CameraSN", default=None)
     z_offset: float = attr(name="ZOffset")
     emission_filter_position: int = attr(name="EmissionFilterPosition", default=1)
