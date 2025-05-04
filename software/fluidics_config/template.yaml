@@ -1,0 +1,133 @@
+---
+# If available, override the port names in config.json file
+port_names:
+  port1: "Probe A"
+  port2: "Probe B"
+  port3: "Probe C"
+  port4: "Probe D"
+  port5: "Probe E"
+  port6: "Probe F"
+  port7: "Probe G"
+  port8: "Probe H"
+  port9: "Probe I"
+  port10: "Probe J"
+  port11: "Probe K"
+  port12: "Probe L"
+  port13: "Probe M"
+  port14: "Probe N"
+  port15: "Probe O"
+  port16: "Probe P"
+  port17: "Probe Q"
+  port18: "Probe R"
+  port19: "Probe S"
+  port20: "Probe T"
+  port21: "Probe U"
+  port22: "Probe V"
+  port23: "Probe W"
+  port24: "Probe X"
+  port25: "Wash buffer"
+  port26: "Readout buffer"
+  port27: "Imaging buffer"
+  port28: "Cleavage buffer"
+
+---
+# Template sequence definitions 
+sequence:
+  - name: &incubate
+      description: "Incubate (pause) for a specified duration"
+      type: timer
+      duration: 10  # min
+  - name: &flow_wash_buffer
+      description: "Flow wash buffer"
+      type: fluidics
+      operation: "Flow from port"
+      port: 26
+      flow_rate: 500  # ul/min
+      volume: 1000  # ul
+      repeat: 1
+  - name: &flow_wash_buffer_fast
+      description: "Flow wash buffer (fast)"
+      type: fluidics
+      operation: "Flow from port"
+      port: 26
+      flow_rate: 5000  # ul/min
+      volume: 1000  # ul
+      repeat: 1
+  - name: &flow_imaging_buffer
+      description: "Flow imaging buffer"
+      type: fluidics
+      port: 27
+      flow_rate: 500  # ul/min
+      volume: 1000  # ul
+      repeat: 1
+  - name: &flow_probe
+      description: "Flow probe"
+      operation: "Flow from port"
+      type: fluidics
+      port: 1
+      flow_rate: 500  # ul/min
+      volume: 1000  # ul
+      repeat: 1
+  - name: &imaging
+      description: "Image all fovs with 5 z-levels and 4 channels"
+      type: imaging
+      acquisition_profile_name: "default"  # Use either acquisition_profile_name or acquisition_profile_path (acquisition_profile_path: "/path/to/acquisition_profile")
+      objective: "10x"
+      laser_autofocus: 
+        enabled: true
+        offset: 0
+      coordinates_path: "path/to/coordinates"
+      fov_subset: all  # Selecting a subset of fovs to be imaged using something like "0-10,20-30" (to be implemented; use "all" for now)
+      z_stack:
+        dz_um: 0.5
+        nz: 5
+      channels:  # Available channels: ["BF", "DF", "BF_low_NA", 405, 488, 561, 640, 738]
+        - 405
+        - 488
+        - 561
+        - 640
+
+# Example experiment definition
+# Experiments: play list of Sequences
+"""
+experiments:
+  round1:
+    - sequence1: *flow_wash_buffer
+    - sequence2:
+        <<: *flow_probe
+        port: 1
+    - sequence3: *flow_wash_buffer
+    - sequence4: *flow_imaging_buffer
+    - sequence5: 
+        <<: *imaging
+        fov_subset: all
+        channels:
+          - 405
+          - 488
+  round2:
+    - sequence1: *flow_wash_buffer
+    - sequence2:
+        <<: *flow_probe
+        port: 2
+    - sequence3: *flow_wash_buffer
+    - sequence4: *flow_imaging_buffer
+    - sequence5: 
+        <<: *imaging
+        fov_subset: 1-10
+        channels:
+          - 405
+          - 488
+  round3:
+    - sequence1: *flow_wash_buffer
+    - sequence2:
+        <<: *flow_probe
+        port: 2
+    - sequence3: *flow_wash_buffer
+    - sequence4: *flow_imaging_buffer
+    - sequence5: 
+        <<: *imaging
+        fov_subset: 1-10
+        channels:
+          - 405
+          - 488
+"""
