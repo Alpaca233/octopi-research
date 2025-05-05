@@ -32,7 +32,7 @@ port_names:
 
 ---
 # Template sequence definitions 
-sequence:
+sequences:
   - name: &incubate
       description: "Incubate (pause) for a specified duration"
       type: timer
@@ -56,6 +56,7 @@ sequence:
   - name: &flow_imaging_buffer
       description: "Flow imaging buffer"
       type: fluidics
+      operation: "Flow from port"
       port: 27
       flow_rate: 500  # ul/min
       volume: 1000  # ul
@@ -90,7 +91,7 @@ sequence:
 # Example experiment definition
 # Experiments: play list of Sequences
 """
-experiments:
+experiment:
   round1:
     - sequence1: *flow_wash_buffer
     - sequence2:
