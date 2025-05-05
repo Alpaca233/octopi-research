@@ -5006,6 +5006,9 @@ class MultiPointWithFluidicsWidget(QFrame):
             return []
 
 
+from control.yaml_viewer import YamlDataManager, YamlViewer
+
+
 class FluidicsWidget(QWidget):
 
     log_message_signal = Signal(str)
@@ -5019,6 +5022,8 @@ class FluidicsWidget(QWidget):
         self.fluidics = fluidics
         self.fluidics.log_callback = self.log_message_signal.emit
         self.set_sequence_callbacks()
+        self.yaml_manager = None
+        self.yaml_viewer = None
 
         # Set up the UI
         self.setup_ui()
@@ -5136,20 +5141,66 @@ class FluidicsWidget(QWidget):
         # Right side - Sequences panel
         right_panel = QVBoxLayout()
 
+        # Sequences Group (Houses the YAML Viewer)
         sequences_group = QGroupBox("Sequences")
-        sequences_layout = QVBoxLayout()
+        self.sequences_layout = QVBoxLayout()  # Layout for inside the sequences group
 
-        # Table for sequences
-        self.sequences_table = QTableView()
-        sequences_layout.addWidget(self.sequences_table)
+        # Placeholder for YAML viewer - will be replaced in load_sequences
+        self.sequences_container = QWidget()
+        # Give the container a minimum height so the group box doesn't collapse initially
+        self.sequences_container.setMinimumHeight(200)
+        self.sequences_layout.addWidget(self.sequences_container)
 
-        # Emergency Stop button
-        self.btn_emergency_stop = QPushButton("Emergency Stop")
-        self.btn_emergency_stop.setStyleSheet("background-color: red; color: white; font-weight: bold;")
-        sequences_layout.addWidget(self.btn_emergency_stop)
+        sequences_group.setLayout(self.sequences_layout)
+        right_panel.addWidget(sequences_group, 5)  # Add sequences group to the right panel
 
-        sequences_group.setLayout(sequences_layout)
-        right_panel.addWidget(sequences_group)
+        # Experiment Control Group (New Panel)
+        experiment_control_group = QGroupBox("Experiment Control")
+        experiment_layout = QVBoxLayout()
+
+        # Row 1: Saving Path, Experiment ID, Run
+        exp_row1_layout = QHBoxLayout()
+        exp_row1_layout.addWidget(QLabel("Saving Path:"))
+        self.lineEdit_savingPath = QLineEdit()
+        self.lineEdit_savingPath.setPlaceholderText("Select base directory...")
+        exp_row1_layout.addWidget(self.lineEdit_savingPath)
+        self.btn_browseSavingPath = QPushButton("Browse")
+        # Reference for icon usage: control/widgets.py startLine: 1 endLine: 3
+        self.btn_browseSavingPath.setIcon(QIcon("icon/folder.png"))  # Assuming icon path is correct
+        exp_row1_layout.addWidget(self.btn_browseSavingPath)
+
+        exp_row1_layout.addWidget(QLabel("Experiment ID:"))
+        self.lineEdit_experimentId = QLineEdit()
+        self.lineEdit_experimentId.setPlaceholderText("e.g., MyExperiment_20240101")
+        exp_row1_layout.addWidget(self.lineEdit_experimentId)
+
+        self.btn_runExperiment = QPushButton("Run Experiment")
+        self.btn_runExperiment.setStyleSheet("background-color: #C2C2FF")
+        exp_row1_layout.addWidget(self.btn_runExperiment)
+
+        experiment_layout.addLayout(exp_row1_layout)
+
+        # Row 2: Pause, Resume, Run From Selected
+        exp_row2_layout = QHBoxLayout()
+        self.btn_pauseImmediate = QPushButton("Pause Immediately")
+        self.btn_pauseAfterSequence = QPushButton("Pause After Sequence")
+        self.btn_resume = QPushButton("Resume")
+        self.btn_runFromSelected = QPushButton("Run from Selected")
+
+        exp_row2_layout.addWidget(self.btn_pauseImmediate)
+        exp_row2_layout.addWidget(self.btn_pauseAfterSequence)
+        exp_row2_layout.addWidget(self.btn_resume)
+        exp_row2_layout.addWidget(self.btn_runFromSelected)
+        experiment_layout.addLayout(exp_row2_layout)
+
+        # Initially disable pause/resume buttons
+        self.btn_pauseImmediate.setEnabled(False)
+        self.btn_pauseAfterSequence.setEnabled(False)
+        self.btn_resume.setEnabled(False)
+        self.btn_runFromSelected.setEnabled(False)  # Enable this maybe after loading sequences and selecting one
+
+        experiment_control_group.setLayout(experiment_layout)
+        right_panel.addWidget(experiment_control_group, 1)  # Add experiment controls below sequences
 
         # Add right panel to main layout
         main_layout.addLayout(right_panel, 1)
@@ -5161,10 +5212,14 @@ class FluidicsWidget(QWidget):
         self.btn_cleanup_start.clicked.connect(self.start_cleanup)
         self.btn_manual_flow.clicked.connect(self.start_manual_flow)
         self.btn_empty_syringe_pump.clicked.connect(self.empty_syringe_pump)
-        self.btn_emergency_stop.clicked.connect(self.emergency_stop)
+        self.btn_browseSavingPath.clicked.connect(self.browse_saving_path)
+        self.btn_runExperiment.clicked.connect(self.start_experiment)
+        self.btn_pauseImmediate.clicked.connect(self.pause_immediate)
+        self.btn_pauseAfterSequence.clicked.connect(self.pause_after_sequence)
+        self.btn_resume.clicked.connect(self.resume_experiment)
+        self.btn_runFromSelected.clicked.connect(self.run_from_selected)
 
         self.enable_controls(False)
-        self.btn_emergency_stop.setEnabled(False)
 
     def initialize_fluidics(self):
         """Initialize the fluidics system"""
@@ -5195,23 +5250,35 @@ class FluidicsWidget(QWidget):
         self.fluidics.worker_callbacks = callbacks
 
     def load_sequences(self):
-        """Open file dialog to load sequences from CSV"""
+        """Open file dialog to load sequences from YAML file"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Load Fluidics Sequences", "", "CSV Files (*.csv);;All Files (*)"
+            self, "Load Fluidics Sequences", "", "YAML Files (*.yaml *.yml);;All Files (*)"
         )
 
         if file_path:
             self.log_status(f"Loading sequences from {file_path}")
             try:
-                self.sequence_df = self.fluidics.load_sequences(file_path)
-                self.sequence_df.drop("include", axis=1, inplace=True)
-                model = PandasTableModel(self.sequence_df, self.fluidics.available_port_names)
-                self.sequences_table.setModel(model)
-                self.sequences_table.resizeColumnsToContents()
-                self.sequences_table.horizontalHeader().setStretchLastSection(True)
-                self.log_status(f"Loaded {len(self.sequence_df)} sequences")
+                # Create YAML manager and load file
+                self.yaml_manager = YamlDataManager(yaml_path=file_path)
+
+                # Remove existing widget if it exists
+                if self.yaml_viewer is not None:
+                    self.sequences_layout.removeWidget(self.yaml_viewer)
+                    self.yaml_viewer.deleteLater()
+
+                # Create and add YAML viewer
+                self.yaml_viewer = YamlViewer(self.yaml_manager, parent=self.sequences_container)
+                self.sequences_layout.replaceWidget(self.sequences_container, self.yaml_viewer)
+
+                # Load the sequences into fluidics
+                # sequences = self.fluidics.load_sequences(file_path)
+
+                self.log_status(f"Loaded experiment sequences from YAML file")
             except Exception as e:
                 self.log_status(f"Error loading sequences: {str(e)}")
+                import traceback
+
+                traceback.print_exc()
 
     def start_prime(self):
         self.set_manual_control_callbacks()
@@ -5263,9 +5330,6 @@ class FluidicsWidget(QWidget):
         self.log_status("Operation completed")
         self.enable_controls(True)
 
-    def emergency_stop(self):
-        self.fluidics.emergency_stop()
-
     def get_port_list(self, text: str) -> list:
         """Parse ports input string into a list of numbers.
 
@@ -5312,15 +5376,20 @@ class FluidicsWidget(QWidget):
             return []
 
     def update_progress(self, idx, seq_num, status):
-        self.sequences_table.model().set_current_row(idx)
-        self.log_message_signal.emit(f"Sequence {self.sequence_df.iloc[idx]['sequence_name']} {status}")
+        """Update progress information based on current sequence state"""
+        if self.yaml_viewer:
+            # For YAML sequences, highlight the current sequence in the tree view
+            self.yaml_viewer.highlight_current_sequence(idx)
+
+        self.log_message_signal.emit(f"Sequence {idx+1}/{seq_num}: {status}")
 
     def on_finish(self, status=None):
         self.enable_controls(True)
-        try:
-            self.sequences_table.model().set_current_row(-1)
-        except:
-            pass
+
+        # Clear YAML viewer highlighting if it exists
+        if self.yaml_viewer:
+            self.yaml_viewer.clear_highlight()
+
         if status is None:
             status = "Sequence section completed"
         self.fluidics.reset_abort()
@@ -5345,69 +5414,112 @@ class FluidicsWidget(QWidget):
         # Also log to console
         self._log.info(message)
 
+    def browse_saving_path(self):
+        """Opens a dialog to select the base saving directory."""
+        # Reference for dialog usage: control/widgets.py startLine: 1 endLine: 5
+        dialog = QFileDialog()
+        # Start in the current directory or a default path if desired
+        save_dir_base = dialog.getExistingDirectory(self, "Select Base Saving Directory")
+        if save_dir_base:  # Check if the user selected a directory
+            self.lineEdit_savingPath.setText(save_dir_base)
+            self.log_status(f"Saving path set to: {save_dir_base}")
+            # Optionally, update the fluidics controller or a config object
+            # if hasattr(self.fluidics, 'set_base_path'):
+            #     self.fluidics.set_base_path(save_dir_base)
 
-class PandasTableModel(QAbstractTableModel):
-    """Model for displaying pandas DataFrame in a QTableView"""
+    def start_experiment(self):
+        """Starts the full experiment execution."""
+        saving_path = self.lineEdit_savingPath.text()
+        experiment_id = self.lineEdit_experimentId.text()
 
-    def __init__(self, data, port_names=None):
-        super().__init__()
-        self._data = data
-        self._current_row = -1
-        self._port_names = port_names or []
-        self._column_name_map = {
-            "sequence_name": "Sequence Name",
-            "fluidic_port": "Fluidic Port",
-            "fill_tubing_with": "Fill Tubing With",
-            "flow_rate": "Flow Rate (µL/min)",
-            "volume": "Volume (µL)",
-            "incubation_time": "Incubation (min)",
-            "repeat": "Repeat",
-        }
+        if not saving_path or not experiment_id:
+            QMessageBox.warning(self, "Missing Information", "Please specify both a Saving Path and an Experiment ID.")
+            return
+        if self.yaml_viewer is None or self.yaml_manager is None:
+            QMessageBox.warning(self, "No Sequences", "Please load a YAML sequence file first.")
+            return
 
-    def rowCount(self, parent=None):
-        return len(self._data)
+        self.log_status(f"Starting experiment '{experiment_id}' saving to '{saving_path}'...")
+        # TODO: Implement the logic to start the experiment
+        # - Pass path and ID to the fluidics controller
+        # - Disable run/load buttons, enable pause buttons
+        # Example: self.fluidics.run_experiment(self.yaml_manager.documents, saving_path, experiment_id)
+        self.enable_experiment_controls(running=True)
+        print(f"Run Experiment Clicked: Path='{saving_path}', ID='{experiment_id}'")  # Placeholder action
 
-    def columnCount(self, parent=None):
-        return len(self._data.columns)
+    def pause_immediate(self):
+        """Pauses the experiment immediately."""
+        self.log_status("Pausing experiment immediately...")
+        # TODO: Implement immediate pause logic in fluidics controller
+        # Example: self.fluidics.pause(immediate=True)
+        self.enable_experiment_controls(paused=True)
+        print("Pause Immediately Clicked")  # Placeholder action
 
-    def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
-            value = self._data.iloc[index.row(), index.column()]
-            if pd.isna(value):
-                return ""
+    def pause_after_sequence(self):
+        """Requests the experiment to pause after the current sequence finishes."""
+        self.log_status("Requesting pause after current sequence...")
+        # TODO: Implement graceful pause logic in fluidics controller
+        # Example: self.fluidics.pause(immediate=False)
+        # Maybe disable the button until the pause actually happens
+        self.btn_pauseAfterSequence.setEnabled(False)
+        print("Pause After Sequence Clicked")  # Placeholder action
 
-            # Map port numbers to names for specific columns
-            column_name = self._data.columns[index.column()]
-            if column_name in ["fluidic_port", "fill_tubing_with"] and self._port_names:
-                try:
-                    # Convert value to integer and get corresponding name
-                    port_num = int(value)
-                    if 1 <= port_num <= len(self._port_names):
-                        return self._port_names[port_num - 1]
-                except (ValueError, TypeError):
-                    pass
+    def resume_experiment(self):
+        """Resumes a paused experiment."""
+        self.log_status("Resuming experiment...")
+        # TODO: Implement resume logic in fluidics controller
+        # Example: self.fluidics.resume()
+        self.enable_experiment_controls(running=True)  # Re-enable pause buttons
+        print("Resume Clicked")  # Placeholder action
 
-            return str(value)
+    def run_from_selected(self):
+        """Starts the experiment from the sequence currently selected in the YAML viewer."""
+        if self.yaml_viewer is None:
+            QMessageBox.warning(self, "No Sequences", "Please load sequences first.")
+            return
 
-        elif role == Qt.BackgroundRole:
-            # Highlight the current row
-            if index.row() == self._current_row:
-                return QBrush(QColor(173, 216, 230))  # Light blue
-            else:
-                return QBrush(QColor(255, 255, 255))  # White
-        return None
+        selected_index = self.yaml_viewer.tree_view.currentIndex()
+        if not selected_index.isValid():
+            QMessageBox.warning(self, "No Selection", "Please select a sequence in the viewer to start from.")
+            return
 
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            original_name = str(self._data.columns[section])
-            return self._column_name_map.get(original_name, original_name)
-        if orientation == Qt.Vertical and role == Qt.DisplayRole:
-            return str(section + 1)
-        return None
+        # TODO: Get the actual sequence identifier (e.g., path or index) from the model
+        # item = self.yaml_viewer.model.getItem(selected_index)
+        # sequence_id = ... # Determine how to identify the sequence for the backend
 
-    def set_current_row(self, row_index):
-        self._current_row = row_index
-        self.dataChanged.emit(self.index(0, 0), self.index(self.rowCount() - 1, self.columnCount() - 1))
+        saving_path = self.lineEdit_savingPath.text()
+        experiment_id = self.lineEdit_experimentId.text()
+        if not saving_path or not experiment_id:
+            QMessageBox.warning(self, "Missing Information", "Please specify Saving Path and Experiment ID.")
+            return
+
+        self.log_status(f"Starting experiment '{experiment_id}' from selected sequence...")
+        # TODO: Implement logic to start from a specific sequence
+        # Example: self.fluidics.run_experiment(..., start_sequence_id=sequence_id)
+        self.enable_experiment_controls(running=True)
+        print(f"Run from Selected Clicked: Item at row {selected_index.row()}")  # Placeholder action
+
+    def enable_experiment_controls(self, running=False, paused=False):
+        """Helper function to enable/disable experiment control buttons."""
+        is_idle = not running and not paused
+
+        # Run buttons are enabled only when idle and sequences are loaded
+        can_run = is_idle and self.yaml_viewer is not None
+        self.btn_runExperiment.setEnabled(can_run)
+        self.btn_runFromSelected.setEnabled(can_run)  # Could add check for selection later
+        self.btn_browseSavingPath.setEnabled(is_idle)
+        self.lineEdit_savingPath.setEnabled(is_idle)
+        self.lineEdit_experimentId.setEnabled(is_idle)
+
+        # Pause buttons enabled only when running
+        self.btn_pauseImmediate.setEnabled(running)
+        self.btn_pauseAfterSequence.setEnabled(running)
+
+        # Resume button enabled only when paused
+        self.btn_resume.setEnabled(paused)
+
+        # Also consider enabling/disabling other controls like Load, Prime, etc.
+        self.enable_controls(is_idle)  # Disable prime/cleanup/manual when running/paused
 
 
 class FocusMapWidget(QFrame):
