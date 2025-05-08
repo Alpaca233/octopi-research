@@ -5006,7 +5006,7 @@ class MultiPointWithFluidicsWidget(QFrame):
             return []
 
 
-from control.yaml_viewer import YamlDataManager, YamlViewer
+from control.yaml_viewer import YamlDataManager, YamlViewer, YamlTreeModel
 
 
 class FluidicsWidget(QWidget):
@@ -5186,11 +5186,13 @@ class FluidicsWidget(QWidget):
         self.btn_pauseAfterSequence = QPushButton("Pause After Sequence")
         self.btn_resume = QPushButton("Resume")
         self.btn_runFromSelected = QPushButton("Run from Selected")
+        self.btn_stop = QPushButton("Stop")
 
         exp_row2_layout.addWidget(self.btn_pauseImmediate)
         exp_row2_layout.addWidget(self.btn_pauseAfterSequence)
         exp_row2_layout.addWidget(self.btn_resume)
         exp_row2_layout.addWidget(self.btn_runFromSelected)
+        exp_row2_layout.addWidget(self.btn_stop)
         experiment_layout.addLayout(exp_row2_layout)
 
         # Initially disable pause/resume buttons
@@ -5198,7 +5200,7 @@ class FluidicsWidget(QWidget):
         self.btn_pauseAfterSequence.setEnabled(False)
         self.btn_resume.setEnabled(False)
         self.btn_runFromSelected.setEnabled(False)  # Enable this maybe after loading sequences and selecting one
-
+        self.btn_stop.setEnabled(False)
         experiment_control_group.setLayout(experiment_layout)
         right_panel.addWidget(experiment_control_group, 1)  # Add experiment controls below sequences
 
@@ -5218,6 +5220,7 @@ class FluidicsWidget(QWidget):
         self.btn_pauseAfterSequence.clicked.connect(self.pause_after_sequence)
         self.btn_resume.clicked.connect(self.resume_experiment)
         self.btn_runFromSelected.clicked.connect(self.run_from_selected)
+        self.btn_stop.clicked.connect(self.abort_experiment)
 
         self.enable_controls(False)
 
@@ -5227,7 +5230,6 @@ class FluidicsWidget(QWidget):
         self.fluidics.initialize()
         self.btn_initialize.setEnabled(False)
         self.enable_controls(True)
-        self.btn_emergency_stop.setEnabled(True)
         self.fluidics_initialized_signal.emit()
 
     def set_sequence_callbacks(self):
@@ -5258,17 +5260,23 @@ class FluidicsWidget(QWidget):
         if file_path:
             self.log_status(f"Loading sequences from {file_path}")
             try:
-                # Create YAML manager and load file
-                self.yaml_manager = YamlDataManager(yaml_path=file_path)
+                # If YAML manager doesn't exist yet, create it
+                if self.yaml_manager is None:
+                    self.yaml_manager = YamlDataManager(yaml_path=file_path)
+                else:
+                    # Otherwise, update existing YAML manager with new file
+                    self.yaml_manager.load_from_file(file_path)
 
-                # Remove existing widget if it exists
-                if self.yaml_viewer is not None:
-                    self.sequences_layout.removeWidget(self.yaml_viewer)
-                    self.yaml_viewer.deleteLater()
-
-                # Create and add YAML viewer
-                self.yaml_viewer = YamlViewer(self.yaml_manager, parent=self.sequences_container)
-                self.sequences_layout.replaceWidget(self.sequences_container, self.yaml_viewer)
+                # If YAML viewer doesn't exist yet, create it
+                if self.yaml_viewer is None:
+                    self.yaml_viewer = YamlViewer(self.yaml_manager, parent=self.sequences_container)
+                    self.sequences_layout.replaceWidget(self.sequences_container, self.yaml_viewer)
+                else:
+                    # Otherwise, refresh the existing viewer
+                    new_model = YamlTreeModel(self.yaml_manager.get_experiment_data())
+                    self.yaml_viewer.model = new_model
+                    self.yaml_viewer.tree_view.setModel(new_model)
+                    self.yaml_viewer.expandFirstLevel()
 
                 # Load the sequences into fluidics
                 # sequences = self.fluidics.load_sequences(file_path)
@@ -5499,9 +5507,19 @@ class FluidicsWidget(QWidget):
         self.enable_experiment_controls(running=True)
         print(f"Run from Selected Clicked: Item at row {selected_index.row()}")  # Placeholder action
 
+    def abort_experiment(self):
+        """Aborts the experiment."""
+        self.log_status("Aborting experiment...")
+        # TODO: Implement abort logic in fluidics controller
+        # Example: self.fluidics.abort()
+        self.enable_experiment_controls(running=False)
+        print("Abort Experiment Clicked")  # Placeholder action
+
     def enable_experiment_controls(self, running=False, paused=False):
         """Helper function to enable/disable experiment control buttons."""
         is_idle = not running and not paused
+        self.experiment_running = running
+        self.experiment_paused = paused
 
         # Run buttons are enabled only when idle and sequences are loaded
         can_run = is_idle and self.yaml_viewer is not None
@@ -5520,6 +5538,13 @@ class FluidicsWidget(QWidget):
 
         # Also consider enabling/disabling other controls like Load, Prime, etc.
         self.enable_controls(is_idle)  # Disable prime/cleanup/manual when running/paused
+
+        # Explicitly disable the Load Sequences button when not idle
+        self.btn_load_sequences.setEnabled(is_idle)
+
+        # Disable YAML viewer editing when running or paused
+        if self.yaml_viewer is not None:
+            self.yaml_viewer.set_editing_enabled(is_idle)
 
 
 class FocusMapWidget(QFrame):

@@ -1115,6 +1115,9 @@ class YamlViewer(QWidget):
         # Store the YAML manager
         self.yaml_manager = yaml_manager
 
+        # Add editing control flag
+        self.editing_enabled = True
+
         # Create main layout
         main_layout = QVBoxLayout(self)
 
@@ -1219,8 +1222,27 @@ class YamlViewer(QWidget):
         path = self.model.highlightItem(index)
         self.itemHighlighted.emit(path)
 
+    def set_editing_enabled(self, enabled):
+        """Enable or disable editing capabilities"""
+        self.editing_enabled = enabled
+
+        # Update UI elements based on editing state
+        self.expand_all_btn.setEnabled(enabled)
+        self.collapse_all_btn.setEnabled(enabled)
+        self.save_as_btn.setEnabled(enabled)
+
+        # Optional: show a visual indication that editing is disabled
+        if not enabled:
+            self.status_label.setText("Editing disabled - experiment in progress")
+        else:
+            self.status_label.setText("")
+
     def show_context_menu(self, position):
         """Show context menu based on item type"""
+        # Skip showing menu if editing is disabled
+        if not self.editing_enabled:
+            return
+
         index = self.tree_view.indexAt(position)
         if not index.isValid():
             return
