@@ -6190,13 +6190,16 @@ class NapariLiveWidget(QWidget):
         self.customizeViewer()
 
     def customizeViewer(self):
+        # Hide the menu bar
+        if hasattr(self.viewer.window, "_qt_window") and hasattr(self.viewer.window._qt_window, "menuBar"):
+            self.viewer.window._qt_window.menuBar().setVisible(False)
         # Hide the status bar (which includes the activity button)
-        if hasattr(self.viewer.window, "_status_bar"):
-            self.viewer.window._status_bar.hide()
+        # if hasattr(self.viewer.window, "_status_bar"):
+        #    self.viewer.window._status_bar.hide()
 
         # Hide the layer buttons
-        if hasattr(self.viewer.window._qt_viewer, "layerButtons"):
-            self.viewer.window._qt_viewer.layerButtons.hide()
+        # if hasattr(self.viewer.window._qt_viewer, "layerButtons"):
+        #    self.viewer.window._qt_viewer.layerButtons.hide()
 
     def updateHistogram(self, layer):
         if self.histogram_widget is not None and layer.data is not None:
@@ -6218,6 +6221,27 @@ class NapariLiveWidget(QWidget):
         return pg.ColorMap(positions, colors)
 
     def initControlWidgets(self, show_trigger_options, show_display_options, show_autolevel, autolevel):
+        # Control buttons
+        self.line_profile_btn_layout = QHBoxLayout()
+        self.toggle_line_profile_btn = QPushButton("Hide Line Profile")
+        self.line_profile_btn_layout.addWidget(self.toggle_line_profile_btn)
+        self.draw_line_btn = QPushButton("Draw Line")
+        self.line_profile_btn_layout.addWidget(self.draw_line_btn)
+        self.line_profile_btn_widget = QWidget()
+        self.line_profile_btn_widget.setLayout(self.line_profile_btn_layout)
+        self.viewer.window.add_dock_widget(self.line_profile_btn_widget, area="right", name="line profile control")
+        self.toggle_line_profile_btn.clicked.connect(self.toggle_line_profile)
+        self.draw_line_btn.clicked.connect(self.draw_line)
+        self.is_in_drawing_mode = False
+
+        # Show line profile plugin
+        from napari_plot_profile import PlotProfile
+
+        self.plot_profile_widget = PlotProfile(self.viewer)
+        self.plot_profile_dock = self.viewer.window.add_dock_widget(
+            self.plot_profile_widget, area="right", name="line profile"
+        )
+
         # Initialize histogram widget
         self.pg_image_item = pg.ImageItem()
         self.histogram_widget = pg.HistogramLUTWidget(image=self.pg_image_item)
@@ -6662,6 +6686,43 @@ class NapariLiveWidget(QWidget):
     def activate(self):
         print("ACTIVATING NAPARI LIVE WIDGET")
         self.viewer.window.activate()
+
+    def toggle_line_profile(self):
+        if self.plot_profile_dock.isVisible():
+            self.plot_profile_dock.hide()
+            self.toggle_line_profile_btn.setText("Show Line Profile")
+        else:
+            self.plot_profile_dock.show()
+            self.toggle_line_profile_btn.setText("Hide Line Profile")
+
+    def draw_line(self):
+        """Toggle between line drawing mode and normal mode"""
+        # Toggle the drawing mode state
+        self.is_in_drawing_mode = not self.is_in_drawing_mode
+
+        # Get or create the shapes layer
+        if "Shapes" not in self.viewer.layers:
+            shapes_layer = self.viewer.add_shapes(
+                name="Shapes", edge_color="red", face_color=[0, 0, 0, 0], edge_width=2  # Transparent face
+            )
+        else:
+            shapes_layer = self.viewer.layers["Shapes"]
+
+        if self.is_in_drawing_mode:
+            # Enter drawing mode
+            # Clear existing shapes if you want only one line at a time
+            shapes_layer.mode = "add_line"
+            shapes_layer.selected_data = set()
+            self.draw_line_btn.setText("Quit Drawing")
+        else:
+            # Exit drawing mode, return to pan/zoom
+            shapes_layer.mode = "pan_zoom"
+            self.draw_line_btn.setText("Draw Line")
+
+            shapes_layer.data = []
+
+        # Make sure shapes layer is active
+        self.viewer.layers.selection.active = shapes_layer
 
 
 class NapariMultiChannelWidget(QWidget):
