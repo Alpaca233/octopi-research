@@ -967,6 +967,8 @@ class ObjectivesWidget(QWidget):
 
 class CameraSettingsWidget(QFrame):
 
+    signal_binning_changed = Signal()
+
     def __init__(
         self,
         camera: AbstractCamera,
@@ -1018,8 +1020,8 @@ class CameraSettingsWidget(QFrame):
             self.dropdown_pixelFormat.setCurrentText(self.camera.get_pixel_format().name)
         else:
             print("setting camera's default pixel format")
-            self.camera.set_pixel_format(CameraPixelFormat.from_string(DEFAULT_PIXEL_FORMAT))
-            self.dropdown_pixelFormat.setCurrentText(DEFAULT_PIXEL_FORMAT)
+            self.camera.set_pixel_format(CameraPixelFormat.from_string(CAMERA_CONFIG.PIXEL_FORMAT_DEFAULT))
+            self.dropdown_pixelFormat.setCurrentText(CAMERA_CONFIG.PIXEL_FORMAT_DEFAULT)
         self.dropdown_pixelFormat.setSizePolicy(QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed))
         # to do: load and save pixel format in configurations
 
@@ -1088,21 +1090,21 @@ class CameraSettingsWidget(QFrame):
         format_line.addWidget(QLabel("Pixel Format"))
         format_line.addWidget(self.dropdown_pixelFormat)
         try:
-            current_res = self.camera.get_resolution()
-            current_res_string = "x".join([str(current_res[0]), str(current_res[1])])
-            res_options = [f"{res[0]}x{res[1]}" for res in self.camera.get_resolutions()]
-            self.dropdown_res = QComboBox()
-            self.dropdown_res.addItems(res_options)
-            self.dropdown_res.setCurrentText(current_res_string)
+            current_binning = self.camera.get_binning()
+            current_binning_string = "x".join([str(current_binning[0]), str(current_binning[1])])
+            binning_options = [f"{binning[0]}x{binning[1]}" for binning in self.camera.get_binning_options()]
+            self.dropdown_binning = QComboBox()
+            self.dropdown_binning.addItems(binning_options)
+            self.dropdown_binning.setCurrentText(current_binning_string)
 
-            self.dropdown_res.currentTextChanged.connect(self.change_full_res)
+            self.dropdown_binning.currentTextChanged.connect(self.set_binning)
         except AttributeError as ae:
             print(ae)
-            self.dropdown_res = QComboBox()
-            self.dropdown_res.setEnabled(False)
+            self.dropdown_binning = QComboBox()
+            self.dropdown_binning.setEnabled(False)
             pass
-        format_line.addWidget(QLabel(" FOV Resolution"))
-        format_line.addWidget(self.dropdown_res)
+        format_line.addWidget(QLabel("Binning"))
+        format_line.addWidget(self.dropdown_binning)
         self.camera_layout.addLayout(format_line)
 
         if include_camera_temperature_setting:
@@ -1113,8 +1115,7 @@ class CameraSettingsWidget(QFrame):
             temp_line.addWidget(self.label_temperature_measured)
             try:
                 self.entry_temperature.valueChanged.connect(self.set_temperature)
-                # TODO(imo): temp reading callback restoration, or polling
-                # self.camera.set_temperature_reading_callback(self.update_measured_temperature)
+                self.camera.set_temperature_reading_callback(self.update_measured_temperature)
             except AttributeError:
                 pass
             self.camera_layout.addLayout(temp_line)
@@ -1154,7 +1155,7 @@ class CameraSettingsWidget(QFrame):
             self.btn_auto_wb.setChecked(False)
             self.btn_auto_wb.clicked.connect(self.toggle_auto_wb)
 
-            self.camera_layout.addLayout(self.btn_auto_wb)
+            self.camera_layout.addWidget(self.btn_auto_wb)
 
         self.setLayout(self.camera_layout)
 
@@ -1168,8 +1169,11 @@ class CameraSettingsWidget(QFrame):
         # 0: OFF  1:CONTINUOUS  2:ONCE
         if pressed:
             # Run auto white balance once, then uncheck
-            self.camera.set_auto_white_balance_gains()
-            self.btn_auto_wb.setChecked(False)
+            self.camera.set_auto_white_balance_gains(on=True)
+        else:
+            self.camera.set_auto_white_balance_gains(on=False)
+            r, g, b = self.camera.get_white_balance_gains()
+            self.camera.set_white_balance_gains(r, g, b)
 
     def set_exposure_time(self, exposure_time):
         self.entry_exposureTime.setValue(exposure_time)
@@ -1228,16 +1232,19 @@ class CameraSettingsWidget(QFrame):
     def update_measured_temperature(self, temperature):
         self.label_temperature_measured.setNum(temperature)
 
-    def change_full_res(self, index):
-        res_strings = self.dropdown_res.currentText().split("x")
-        res_x = int(res_strings[0])
-        res_y = int(res_strings[1])
-        self.camera.set_resolution(res_x, res_y)
+    def set_binning(self, binning_text):
+        binning_parts = binning_text.split("x")
+        binning_x = int(binning_parts[0])
+        binning_y = int(binning_parts[1])
+
+        self.camera.set_binning(binning_x, binning_y)
+
         self.entry_ROI_offset_x.blockSignals(True)
         self.entry_ROI_offset_y.blockSignals(True)
         self.entry_ROI_height.blockSignals(True)
         self.entry_ROI_width.blockSignals(True)
 
+        # TODO: move these calculations to camera class as they can be different for different cameras
         def round_to_8(val):
             return int(8 * val // 8)
 
@@ -1258,6 +1265,8 @@ class CameraSettingsWidget(QFrame):
         self.entry_ROI_offset_y.blockSignals(False)
         self.entry_ROI_height.blockSignals(False)
         self.entry_ROI_width.blockSignals(False)
+
+        self.signal_binning_changed.emit()
 
     def update_blacklevel(self, blacklevel):
         try:
@@ -1619,9 +1628,7 @@ class LiveControlWidget(QFrame):
             self.channelConfigurationManager.update_configuration(
                 self.objectiveStore.current_objective, self.currentConfiguration.id, "IlluminationIntensity", new_value
             )
-            self.liveController.set_illumination(
-                self.currentConfiguration.illumination_source, self.currentConfiguration.illumination_intensity
-            )
+            self.liveController.update_illumination()
 
     def set_microscope_mode(self, config):
         # self.liveController.set_microscope_mode(config)
@@ -2616,6 +2623,12 @@ class FlexibleMultiPointWidget(QFrame):
         self.btn_startAcquisition.setChecked(False)
         # self.btn_startAcquisition.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+        # Add snap images button
+        self.btn_snap_images = QPushButton("Snap Images")
+        self.btn_snap_images.clicked.connect(self.on_snap_images)
+        self.btn_snap_images.setCheckable(False)
+        self.btn_snap_images.setChecked(False)
+
         self.progress_label = QLabel("Region -/-")
         self.progress_bar = QProgressBar()
         self.eta_label = QLabel("--:--:--")
@@ -2747,10 +2760,14 @@ class FlexibleMultiPointWidget(QFrame):
         grid_config.addWidget(self.list_configurations)
         grid_config.addSpacerItem(edge_spacer)
 
+        button_layout = QVBoxLayout()
+        button_layout.addWidget(self.btn_snap_images)
+        button_layout.addWidget(self.btn_startAcquisition)
+
         grid_acquisition = QHBoxLayout()
         grid_acquisition.addSpacerItem(edge_spacer)
         grid_acquisition.addLayout(grid_af)
-        grid_acquisition.addWidget(self.btn_startAcquisition)
+        grid_acquisition.addLayout(button_layout)
 
         self.grid_acquisition.addLayout(grid_config, 6, 0, 3, 4)
         self.grid_acquisition.addLayout(grid_acquisition, 6, 4, 3, 4)
@@ -2812,7 +2829,7 @@ class FlexibleMultiPointWidget(QFrame):
         self.checkbox_stitchOutput.toggled.connect(self.display_stitcher_widget)
         self.btn_setSavingDir.clicked.connect(self.set_saving_dir)
         self.btn_startAcquisition.clicked.connect(self.toggle_acquisition)
-        self.multipointController.acquisitionFinished.connect(self.acquisition_is_finished)
+        self.multipointController.acquisition_finished.connect(self.acquisition_is_finished)
         self.list_configurations.itemSelectionChanged.connect(self.emit_selected_channels)
         # self.combobox_z_stack.currentIndexChanged.connect(self.signal_z_stacking.emit)
 
@@ -3532,6 +3549,32 @@ class FlexibleMultiPointWidget(QFrame):
                     self._log.warning("Duplicate values not added based on x and y.")
             self._log.debug(self.location_list)
 
+    def on_snap_images(self):
+        if not self.list_configurations.selectedItems():
+            QMessageBox.warning(self, "Warning", "Please select at least one imaging channel")
+            return
+
+        # Set the selected channels for acquisition
+        self.multipointController.set_selected_configurations(
+            [item.text() for item in self.list_configurations.selectedItems()]
+        )
+        # Set the acquisition parameters
+        self.multipointController.set_deltaZ(0)
+        self.multipointController.set_NZ(1)
+        self.multipointController.set_deltat(0)
+        self.multipointController.set_Nt(1)
+        self.multipointController.set_use_piezo(False)
+        self.multipointController.set_af_flag(False)
+        self.multipointController.set_reflection_af_flag(False)
+        self.multipointController.set_use_fluidics(False)
+
+        z = self.stage.get_pos().z_mm
+        self.multipointController.set_z_range(z, z)
+
+        # Start the acquisition process for the single FOV
+        self.multipointController.start_new_experiment("snapped images" + self.lineEdit_experimentID.text())
+        self.multipointController.run_acquisition(acquire_current_fov=True)
+
     def acquisition_is_finished(self):
         self._log.debug(
             f"In FlexibleMultiPointWidget, got acquisition_is_finished with {self.is_current_acquisition_widget=}"
@@ -3789,6 +3832,12 @@ class WellplateMultiPointWidget(QFrame):
         self.eta_label.setVisible(False)
         self.eta_timer = QTimer()
 
+        # Add snap images button
+        self.btn_snap_images = QPushButton("Snap Images")
+        self.btn_snap_images.clicked.connect(self.on_snap_images)
+        self.btn_snap_images.setCheckable(False)
+        self.btn_snap_images.setChecked(False)
+
         # Main layout
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
@@ -3876,10 +3925,14 @@ class WellplateMultiPointWidget(QFrame):
         if ENABLE_STITCHER:
             options_layout.addWidget(self.checkbox_stitchOutput)
 
+        button_layout = QVBoxLayout()
+        button_layout.addWidget(self.btn_snap_images)
+        button_layout.addWidget(self.btn_startAcquisition)
+
         bottom_right = QHBoxLayout()
         bottom_right.addLayout(options_layout)
         bottom_right.addSpacing(2)
-        bottom_right.addWidget(self.btn_startAcquisition)
+        bottom_right.addLayout(button_layout)
 
         grid.addLayout(bottom_right, 2, 2)
         spacer_widget = QWidget()
@@ -3920,7 +3973,7 @@ class WellplateMultiPointWidget(QFrame):
         self.checkbox_usePiezo.toggled.connect(self.multipointController.set_use_piezo)
         self.checkbox_stitchOutput.toggled.connect(self.display_stitcher_widget)
         self.list_configurations.itemSelectionChanged.connect(self.emit_selected_channels)
-        self.multipointController.acquisitionFinished.connect(self.acquisition_is_finished)
+        self.multipointController.acquisition_finished.connect(self.acquisition_is_finished)
         self.multipointController.signal_acquisition_progress.connect(self.update_acquisition_progress)
         self.multipointController.signal_region_progress.connect(self.update_region_progress)
         self.signal_acquisition_started.connect(self.display_progress_bar)
@@ -4088,7 +4141,12 @@ class WellplateMultiPointWidget(QFrame):
     def get_effective_well_size(self):
         well_size = self.scanCoordinates.well_size_mm
         if self.combobox_shape.currentText() == "Circle":
-            fov_size_mm = (self.objectiveStore.get_pixel_size() / 1000) * Acquisition.CROP_WIDTH
+            pixel_size_um = (
+                self.objectiveStore.get_pixel_size_factor() * self.navigationViewer.camera_sensor_pixel_size_um
+            )
+            # TODO: In the future software cropping size may be changed when program is running,
+            # so we may want to use the crop_width from the camera object here.
+            fov_size_mm = (pixel_size_um / 1000) * CAMERA_CONFIG.CROP_WIDTH_UNBINNED
             return well_size + fov_size_mm * (1 + math.sqrt(2))
         return well_size
 
@@ -4290,9 +4348,7 @@ class WellplateMultiPointWidget(QFrame):
                     # If fit successful, set the surface fitter in controller
                     self.multipointController.set_focus_map(self.focusMapWidget.focusMap)
                 else:
-                    # If fit failed, uncheck the box and show warning
-                    self.checkbox_useFocusMap.setChecked(False)
-                    QMessageBox.warning(self, "Warning", "Failed to fit focus surface - need at least 4 focus points")
+                    QMessageBox.warning(self, "Warning", "Failed to fit focus surface")
                     self.btn_startAcquisition.setChecked(False)
                     return
             else:
@@ -4342,7 +4398,12 @@ class WellplateMultiPointWidget(QFrame):
         self.signal_acquisition_started.emit(False)
         self.is_current_acquisition_widget = False
         self.btn_startAcquisition.setChecked(False)
+        if self.focusMapWidget is not None and self.focusMapWidget.focus_points:
+            self.focusMapWidget.disable_updating_focus_points_on_signal()
         self.reset_coordinates()
+        if self.focusMapWidget is not None and self.focusMapWidget.focus_points:
+            self.focusMapWidget.update_focus_point_display()
+            self.focusMapWidget.enable_updating_focus_points_on_signal()
         self.setEnabled_all(True)
 
     def setEnabled_all(self, enabled):
@@ -4370,6 +4431,31 @@ class WellplateMultiPointWidget(QFrame):
         self.multipointController.set_base_path(save_dir_base)
         self.lineEdit_savingDir.setText(save_dir_base)
         self.base_path_is_set = True
+
+    def on_snap_images(self):
+        if not self.list_configurations.selectedItems():
+            QMessageBox.warning(self, "Warning", "Please select at least one imaging channel")
+            return
+
+        # Set the selected channels for acquisition
+        self.multipointController.set_selected_configurations(
+            [item.text() for item in self.list_configurations.selectedItems()]
+        )
+        # Set the acquisition parameters
+        self.multipointController.set_deltaZ(0)
+        self.multipointController.set_NZ(1)
+        self.multipointController.set_deltat(0)
+        self.multipointController.set_Nt(1)
+        self.multipointController.set_use_piezo(False)
+        self.multipointController.set_af_flag(False)
+        self.multipointController.set_reflection_af_flag(False)
+        self.multipointController.set_use_fluidics(False)
+
+        z = self.stage.get_pos().z_mm
+        self.multipointController.set_z_range(z, z)
+        # Start the acquisition process for the single FOV
+        self.multipointController.start_new_experiment("snapped images" + self.lineEdit_experimentID.text())
+        self.multipointController.run_acquisition(acquire_current_fov=True)
 
     def set_deltaZ(self, value):
         if self.checkbox_usePiezo.isChecked():
@@ -4490,11 +4576,13 @@ class WellplateMultiPointWidget(QFrame):
         )
 
         if file_path:
-            # Add .csv extension if not present
-            if not file_path.lower().endswith(".csv"):
-                file_path += ".csv"
+            base_path, extension = os.path.splitext(file_path)
+            if not extension:
+                extension = ".csv"
 
-            try:
+            current_objective = self.objectiveStore.current_objective
+
+            def _helper_save_coordinates(self, file_path: str):
                 # Get coordinates from scanCoordinates
                 coordinates = []
                 for region_id, fov_coords in self.scanCoordinates.region_fov_coordinates.items():
@@ -4507,6 +4595,21 @@ class WellplateMultiPointWidget(QFrame):
                 df.to_csv(file_path, index=False)
 
                 self._log.info(f"Saved scan coordinates to {file_path}")
+
+            try:
+                for objective_name in self.objectiveStore.objectives_dict.keys():
+                    if objective_name == current_objective:
+                        continue
+                    else:
+                        self.objectiveStore.set_current_objective(objective_name)
+                        self.update_coordinates()
+                        obj_file_path = f"{base_path}_{objective_name}{extension}"
+                        _helper_save_coordinates(self, obj_file_path)
+
+                self.objectiveStore.set_current_objective(current_objective)
+                self.update_coordinates()
+                obj_file_path = f"{base_path}_{current_objective}{extension}"
+                _helper_save_coordinates(self, obj_file_path)
 
             except Exception as e:
                 self._log.error(f"Failed to save coordinates: {str(e)}")
@@ -4708,7 +4811,7 @@ class MultiPointWithFluidicsWidget(QFrame):
         self.checkbox_withReflectionAutofocus.toggled.connect(self.multipointController.set_reflection_af_flag)
         self.checkbox_usePiezo.toggled.connect(self.multipointController.set_use_piezo)
         self.list_configurations.itemSelectionChanged.connect(self.emit_selected_channels)
-        self.multipointController.acquisitionFinished.connect(self.acquisition_is_finished)
+        self.multipointController.acquisition_finished.connect(self.acquisition_is_finished)
         self.multipointController.signal_acquisition_progress.connect(self.update_acquisition_progress)
         self.multipointController.signal_region_progress.connect(self.update_region_progress)
         self.signal_acquisition_started.connect(self.display_progress_bar)
@@ -5561,7 +5664,7 @@ class FocusMapWidget(QFrame):
         self.focusMap = focusMap
 
         # Store focus points in widget
-        self.focus_points = []  # list of (x,y,z) tuples
+        self.focus_points = []  # list of (region_id, x, y, z) tuples
         self.enabled = False  # toggled when focus map enabled for next acquisition
 
         self.setup_ui()
@@ -5582,7 +5685,7 @@ class FocusMapWidget(QFrame):
         controls_layout.addWidget(self.update_z_btn)
         self.layout.addLayout(controls_layout)
 
-        # Point control buttons
+        # Point control buttons - line 1
         point_controls = QHBoxLayout()
         self.add_point_btn = QPushButton("Add")
         self.remove_point_btn = QPushButton("Remove")
@@ -5594,22 +5697,33 @@ class FocusMapWidget(QFrame):
         point_controls.addWidget(self.edit_point_btn)
         self.layout.addLayout(point_controls)
 
+        # Point control buttons - line 2
+        point_controls_2 = QHBoxLayout()
+        point_controls_2.addWidget(QLabel("Focus Grid:"))
+        self.rows_spin = QSpinBox()
+        self.rows_spin.setRange(1, 10)
+        self.rows_spin.setValue(4)
+        point_controls_2.addWidget(self.rows_spin)
+        x_label = QLabel("×")
+        x_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        point_controls_2.addWidget(x_label)
+        self.cols_spin = QSpinBox()
+        self.cols_spin.setRange(1, 10)
+        self.cols_spin.setValue(4)
+        point_controls_2.addWidget(self.cols_spin)
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.import_btn = QPushButton("Import")
+        self.import_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        point_controls_2.addWidget(self.export_btn)
+        point_controls_2.addWidget(self.import_btn)
+        self.layout.addLayout(point_controls_2)
+
         # Surface fitting controls
         settings_layout = QHBoxLayout()
-        settings_layout.addWidget(QLabel("Focus Grid:"))
-        self.rows_spin = QSpinBox()
-        self.rows_spin.setRange(2, 10)
-        self.rows_spin.setValue(4)
-        settings_layout.addWidget(self.rows_spin)
-        settings_layout.addWidget(QLabel("×"))
-        self.cols_spin = QSpinBox()
-        self.cols_spin.setRange(2, 10)
-        self.cols_spin.setValue(4)
-        settings_layout.addWidget(self.cols_spin)
-        settings_layout.addStretch()
-        settings_layout.addWidget(QLabel("Fit Method:"))
+        settings_layout.addWidget(QLabel("Fitting Method:"))
         self.fit_method_combo = QComboBox()
-        self.fit_method_combo.addItems(["spline", "rbf"])
+        self.fit_method_combo.addItems(["spline", "rbf", "constant"])
         settings_layout.addWidget(self.fit_method_combo)
         settings_layout.addWidget(QLabel("Smoothing:"))
         self.smoothing_spin = QDoubleSpinBox()
@@ -5617,11 +5731,14 @@ class FocusMapWidget(QFrame):
         self.smoothing_spin.setValue(0.1)
         self.smoothing_spin.setSingleStep(0.05)
         settings_layout.addWidget(self.smoothing_spin)
+        self.by_region_checkbox = QCheckBox("Fit by Region")
+        self.by_region_checkbox.setChecked(False)
+        settings_layout.addWidget(self.by_region_checkbox)
         self.layout.addLayout(settings_layout)
 
-        # Status label (hidden by default)
+        # Status label - reserve space even when hidden
         self.status_label = QLabel()
-        self.status_label.hide()
+        self.status_label.setText(" ")  # Empty text to keep space
         self.layout.addWidget(self.status_label)
 
     def make_connections(self):
@@ -5640,30 +5757,40 @@ class FocusMapWidget(QFrame):
         self.remove_point_btn.clicked.connect(self.remove_current_point)
         self.next_point_btn.clicked.connect(self.goto_next_point)
         self.edit_point_btn.clicked.connect(self.edit_current_point)
+        self.export_btn.clicked.connect(self.export_focus_points)
+        self.import_btn.clicked.connect(self.import_focus_points)
+
+        # Connect fitting method change
+        self.fit_method_combo.currentTextChanged.connect(self._match_by_region_box)
 
         # Connect to scan coordinates changes
         self.scanCoordinates.signal_scan_coordinates_updated.connect(self.on_regions_updated)
 
     def update_point_list(self):
         """Update point selection combo showing grid coordinates for points"""
-        # self.point_combo.blockSignals(True)
+        self.point_combo.blockSignals(True)
         curr_focus_point = self.point_combo.currentIndex()
         self.point_combo.clear()
-        rows = self.rows_spin.value()
-        cols = self.cols_spin.value()
-        for idx, (x, y, z) in enumerate(self.focus_points):
+        for idx, (region_id, x, y, z) in enumerate(self.focus_points):
             point_text = (
-                f"x:" + str(round(x, 3)) + "mm  y:" + str(round(y, 3)) + "mm  z:" + str(round(1000 * z, 2)) + "μm"
+                f"{region_id}: "
+                + "x:"
+                + str(round(x, 3))
+                + "mm  y:"
+                + str(round(y, 3))
+                + "mm  z:"
+                + str(round(1000 * z, 2))
+                + "μm"
             )
             self.point_combo.addItem(point_text)
         self.point_combo.setCurrentIndex(max(0, min(curr_focus_point, len(self.focus_points) - 1)))
-        # self.point_combo.blockSignals(False)
+        self.point_combo.blockSignals(False)
 
     def edit_current_point(self):
         """Edit coordinates of current point in a popup dialog"""
         index = self.point_combo.currentIndex()
         if 0 <= index < len(self.focus_points):
-            x, y, z = self.focus_points[index]
+            region_id, x, y, z = self.focus_points[index]
 
             # Create dialog
             dialog = QDialog(self)
@@ -5707,14 +5834,14 @@ class FocusMapWidget(QFrame):
                 new_x = x_spin.value()
                 new_y = y_spin.value()
                 new_z = z_spin.value() / 1000  # Convert μm back to mm for storage
-                self.focus_points[index] = (new_x, new_y, new_z)
+                self.focus_points[index] = (region_id, new_x, new_y, new_z)
                 self.update_point_list()
                 self.update_focus_point_display()
 
     def update_focus_point_display(self):
         """Update all focus points on navigation viewer"""
         self.navigationViewer.clear_focus_points()
-        for x, y, _ in self.focus_points:
+        for _, x, y, _ in self.focus_points:
             self.navigationViewer.register_focus_point(x, y)
 
     def generate_grid(self, rows=4, cols=4):
@@ -5723,7 +5850,7 @@ class FocusMapWidget(QFrame):
             self.point_combo.blockSignals(True)
             self.focus_points.clear()
             self.navigationViewer.clear_focus_points()
-            self.status_label.hide()
+            self.status_label.setText(" ")
             current_z = self.stage.get_pos().z_mm
 
             # Use FocusMap to generate coordinates
@@ -5732,9 +5859,10 @@ class FocusMapWidget(QFrame):
             )
 
             # Add points with current z coordinate
-            for x, y in coordinates:
-                self.focus_points.append((x, y, current_z))
-                self.navigationViewer.register_focus_point(x, y)
+            for region_id, coords_list in coordinates.items():
+                for coords in coords_list:
+                    self.focus_points.append((region_id, coords[0], coords[1], current_z))
+                    self.navigationViewer.register_focus_point(coords[0], coords[1])
 
             self.update_point_list()
             self.point_combo.blockSignals(False)
@@ -5744,10 +5872,48 @@ class FocusMapWidget(QFrame):
         self.generate_grid(self.rows_spin.value(), self.cols_spin.value())
 
     def add_current_point(self):
+        # Check if any scan regions exist
+        if not self.scanCoordinates.has_regions():
+            QMessageBox.warning(self, "No Regions Defined", "Please define scan regions before adding focus points.")
+            return
+
         pos = self.stage.get_pos()
-        self.focus_points.append((pos.x_mm, pos.y_mm, pos.z_mm))
-        self.update_point_list()
-        self.navigationViewer.register_focus_point(pos.x_mm, pos.y_mm)
+        region_id = None
+
+        # If by_region checkbox is checked, ask for region ID
+        if self.by_region_checkbox.isChecked():
+            region_ids = list(self.scanCoordinates.region_centers.keys())
+            if not region_ids:
+                QMessageBox.warning(
+                    self, "No Regions Defined", "Please define scan regions before adding focus points."
+                )
+                return
+
+            region_id, ok = QInputDialog.getItem(
+                self, "Select Region", "Choose a region:", [str(r) for r in region_ids], 0, False
+            )
+            if not ok or not region_id:
+                return
+            region_id = str(region_id)  # Ensure string format
+        else:
+            # Find the closest region to current position
+            closest_region = None
+            min_distance = float("inf")
+            for rid, center in self.scanCoordinates.region_centers.items():
+                dx = center[0] - pos.x_mm
+                dy = center[1] - pos.y_mm
+                distance = dx * dx + dy * dy
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_region = rid
+            region_id = closest_region
+
+        if region_id is not None:
+            self.focus_points.append((region_id, pos.x_mm, pos.y_mm, pos.z_mm))
+            self.update_point_list()
+            self.navigationViewer.register_focus_point(pos.x_mm, pos.y_mm)
+        else:
+            QMessageBox.warning(self, "Region Error", "Could not determine a valid region for this focus point.")
 
     def remove_current_point(self):
         index = self.point_combo.currentIndex()
@@ -5768,7 +5934,7 @@ class FocusMapWidget(QFrame):
         if self.enabled:
             index = self.point_combo.currentIndex()
             if 0 <= index < len(self.focus_points):
-                x, y, z = self.focus_points[index]
+                _, x, y, z = self.focus_points[index]
                 self.stage.move_x_to(x)
                 self.stage.move_y_to(y)
                 self.stage.move_z_to(z)
@@ -5777,40 +5943,178 @@ class FocusMapWidget(QFrame):
         index = self.point_combo.currentIndex()
         if 0 <= index < len(self.focus_points):
             new_z = self.stage.get_pos().z_mm
-            x, y, _ = self.focus_points[index]
-            self.focus_points[index] = (x, y, new_z)
+            region_id, x, y, _ = self.focus_points[index]
+            self.focus_points[index] = (region_id, x, y, new_z)
             self.update_point_list()
 
-    def get_points_array(self):
-        return np.array(self.focus_points)
-
-    def update_z_display(self, z_pos_mm):
-        self.z_label.setText(f"Z: {z_pos_mm:.3f} mm")
+    def get_region_points_dict(self):
+        points_dict = {}
+        for region_id, x, y, z in self.focus_points:
+            if region_id not in points_dict:
+                points_dict[region_id] = []
+            points_dict[region_id].append((x, y, z))
+        return points_dict
 
     def fit_surface(self):
-        if len(self.focus_points) < 4:
-            self.status_label.setText("Need at least 4 points to fit surface")
-            self.status_label.show()
-            return False
-
         try:
-            self.focusMap.set_method(self.fit_method_combo.currentText())
+            method = self.fit_method_combo.currentText()
+            rows = self.rows_spin.value()
+            cols = self.cols_spin.value()
+            by_region = self.by_region_checkbox.isChecked()
+
+            # Validate settings
+            if by_region:
+                scan_regions = set(self.scanCoordinates.region_centers.keys())
+                focus_regions = set(region_id for region_id, _, _, _ in self.focus_points)
+                if focus_regions != scan_regions:
+                    QMessageBox.warning(
+                        self,
+                        "Region Mismatch",
+                        "The focus points region IDs do not match the scan regions. Please uncheck 'By Region' or select the correct regions.",
+                    )
+                    return False
+
+            if method == "constant" and (rows != 1 or cols != 1):
+                QMessageBox.warning(
+                    self,
+                    "Confirm Your Configuration",
+                    "For 'constant' method, grid size should be 1×1.\nUse 'constant' with 'By Region' checked to define a Z value for each region.",
+                )
+                return False
+
+            if method != "constant" and (rows < 2 or cols < 2):
+                QMessageBox.warning(
+                    self,
+                    "Confirm Your Configuration",
+                    "For surface fitting methods ('spline' or 'rbf'), a grid size of at least 2×2 is recommended.\nAlternatively, use 1x1 grid and 'constant' with 'By Region' checked to define a Z value for each region.",
+                )
+                return False
+
+            self.focusMap.set_method(method)
+            self.focusMap.set_fit_by_region(by_region)
             self.focusMap.smoothing_factor = self.smoothing_spin.value()
 
-            mean_error, std_error = self.focusMap.fit(self.get_points_array())
+            mean_error, std_error = self.focusMap.fit(self.get_region_points_dict())
 
             self.status_label.setText(f"Surface fit: {mean_error:.3f} mm mean error")
-            self.status_label.show()
             return True
 
         except Exception as e:
             self.status_label.setText(f"Fitting failed: {str(e)}")
-            self.status_label.show()
             return False
+
+    def _match_by_region_box(self):
+        if self.fit_method_combo.currentText() == "constant":
+            self.by_region_checkbox.setChecked(True)
+
+    def export_focus_points(self):
+        """Export focus points to a CSV file"""
+        if not self.focus_points:
+            QMessageBox.warning(self, "No Focus Points", "There are no focus points to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Focus Points", "", "CSV Files (*.csv);;All Files (*)")
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".csv"):
+            file_path += ".csv"
+
+        try:
+            with open(file_path, "w", newline="") as csvfile:
+                writer = csv.writer(csvfile)
+                # Write header
+                writer.writerow(["Region_ID", "X_mm", "Y_mm", "Z_um"])
+
+                # Write data
+                for region_id, x, y, z in self.focus_points:
+                    writer.writerow([region_id, x, y, z])
+
+            self.status_label.setText(f"Exported {len(self.focus_points)} points to {file_path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export focus points: {str(e)}")
+
+    def import_focus_points(self):
+        """Import focus points from a CSV file"""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Focus Points", "", "CSV Files (*.csv);;All Files (*)")
+
+        if not file_path:
+            return
+
+        try:
+            # Read the CSV file
+            imported_points = []
+            with open(file_path, "r", newline="") as csvfile:
+                reader = csv.reader(csvfile)
+                header = next(reader)  # Skip header row
+
+                # Validate header
+                required_columns = ["Region_ID", "X_mm", "Y_mm", "Z_um"]
+                if not all(col in header for col in required_columns):
+                    QMessageBox.warning(
+                        self, "Invalid Format", f"CSV file must contain columns: {', '.join(required_columns)}"
+                    )
+                    return
+
+                # Get column indices
+                region_idx = header.index("Region_ID")
+                x_idx = header.index("X_mm")
+                y_idx = header.index("Y_mm")
+                z_idx = header.index("Z_um")
+
+                # Read data
+                for row in reader:
+                    if len(row) >= 4:
+                        try:
+                            region_id = str(row[region_idx])
+                            x = float(row[x_idx])
+                            y = float(row[y_idx])
+                            z = float(row[z_idx])
+                            imported_points.append((region_id, x, y, z))
+                        except (ValueError, IndexError):
+                            continue
+
+            # If by_region is checked, validate regions
+            if self.by_region_checkbox.isChecked():
+                scan_regions = set(self.scanCoordinates.region_centers.keys())
+                focus_regions = set(region_id for region_id, _, _, _ in imported_points)
+
+                if not focus_regions == scan_regions:
+                    response = QMessageBox.warning(
+                        self,
+                        "Region Mismatch",
+                        f"The imported focus points have regions: {', '.join(sorted(focus_regions))}\n\n"
+                        f"Current scan has regions: {', '.join(sorted(scan_regions))}\n\n"
+                        "Import anyway (disable 'By Region') or cancel?",
+                        QMessageBox.Ok | QMessageBox.Cancel,
+                        QMessageBox.Cancel,
+                    )
+
+                    if response == QMessageBox.Cancel:
+                        return
+                    else:
+                        # User chose to continue, uncheck by_region
+                        self.by_region_checkbox.setChecked(False)
+
+            # Clear existing points and add imported ones
+            self.focus_points = imported_points
+            self.update_point_list()
+            self.update_focus_point_display()
+
+            self.status_label.setText(f"Imported {len(imported_points)} focus points")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to import focus points: {str(e)}")
 
     def on_regions_updated(self):
         if self.scanCoordinates.has_regions():
-            self.generate_grid()
+            self.generate_grid(self.rows_spin.value(), self.cols_spin.value())
+
+    def disable_updating_focus_points_on_signal(self):
+        self.scanCoordinates.signal_scan_coordinates_updated.disconnect(self.on_regions_updated)
+
+    def enable_updating_focus_points_on_signal(self):
+        self.scanCoordinates.signal_scan_coordinates_updated.connect(self.on_regions_updated)
 
     def setEnabled(self, enabled):
         self.enabled = enabled
@@ -6108,9 +6412,9 @@ class NapariLiveWidget(QWidget):
         self.customizeViewer()
 
     def customizeViewer(self):
-        # Hide the status bar (which includes the activity button)
-        if hasattr(self.viewer.window, "_status_bar"):
-            self.viewer.window._status_bar.hide()
+        # # Hide the status bar (which includes the activity button)
+        # if hasattr(self.viewer.window, "_status_bar"):
+        #     self.viewer.window._status_bar.hide()
 
         # Hide the layer buttons
         if hasattr(self.viewer.window._qt_viewer, "layerButtons"):
@@ -6432,7 +6736,7 @@ class NapariLiveWidget(QWidget):
         self.channelConfigurationManager.update_configuration(
             self.objectiveStore.current_objective, self.live_configuration.id, "IlluminationIntensity", new_value
         )
-        self.liveController.set_illumination(self.live_configuration.illumination_source, new_value)
+        self.liveController.update_illumination()
 
     def update_resolution_scaling(self, value):
         self.streamHandler.set_display_resolution_scaling(value)
@@ -6584,10 +6888,11 @@ class NapariLiveWidget(QWidget):
 
 class NapariMultiChannelWidget(QWidget):
 
-    def __init__(self, objectiveStore, contrastManager, grid_enabled=False, parent=None):
+    def __init__(self, objectiveStore, camera, contrastManager, grid_enabled=False, parent=None):
         super().__init__(parent)
         # Initialize placeholders for the acquisition parameters
         self.objectiveStore = objectiveStore
+        self.camera = camera
         self.contrastManager = contrastManager
         self.image_width = 0
         self.image_height = 0
@@ -6617,16 +6922,16 @@ class NapariMultiChannelWidget(QWidget):
         self.customizeViewer()
 
     def customizeViewer(self):
-        # Hide the status bar (which includes the activity button)
-        if hasattr(self.viewer.window, "_status_bar"):
-            self.viewer.window._status_bar.hide()
+        # # Hide the status bar (which includes the activity button)
+        # if hasattr(self.viewer.window, "_status_bar"):
+        #     self.viewer.window._status_bar.hide()
 
         # Hide the layer buttons
         if hasattr(self.viewer.window._qt_viewer, "layerButtons"):
             self.viewer.window._qt_viewer.layerButtons.hide()
 
     def initLayersShape(self, Nz, dz):
-        pixel_size_um = self.objectiveStore.get_pixel_size()
+        pixel_size_um = self.objectiveStore.get_pixel_size_factor() * self.camera.get_pixel_size_binned_um()
         if self.Nz != Nz or self.dz_um != dz or self.pixel_size_um != pixel_size_um:
             self.acquisition_initialized = False
             self.Nz = Nz
@@ -6737,50 +7042,6 @@ class NapariMultiChannelWidget(QWidget):
             for layer in self.viewer.layers:
                 layer.refresh()
 
-    def updateRTPLayers(self, image, channel_name):
-        """Updates the appropriate slice of the canvas with the new image data."""
-        # Check if the layer exists and has a different dtype
-        if self.dtype != image.dtype:  # or self.viewer.layers[channel_name].data.dtype != image.dtype:
-            # Remove the existing layer
-            self.layers_initialized = False
-            self.acquisition_initialized = False
-
-        if not self.layers_initialized:
-            self.initLayers(image.shape[0], image.shape[1], image.dtype)
-
-        rgb = len(image.shape) == 3
-        if channel_name not in self.viewer.layers:
-            self.channels.add(channel_name)
-            if rgb:
-                color = None  # RGB images do not need a colormap
-                canvas = np.zeros((self.image_height, self.image_width, 3), dtype=self.dtype)
-            else:
-                channel_info = CHANNEL_COLORS_MAP.get(
-                    self.extractWavelength(channel_name), {"hex": 0xFFFFFF, "name": "gray"}
-                )
-                if channel_info["name"] in AVAILABLE_COLORMAPS:
-                    color = AVAILABLE_COLORMAPS[channel_info["name"]]
-                else:
-                    color = self.generateColormap(channel_info)
-                canvas = np.zeros((self.image_height, self.image_width), dtype=self.dtype)
-
-            layer = self.viewer.add_image(
-                canvas,
-                name=channel_name,
-                visible=True,
-                rgb=rgb,
-                colormap=color,
-                blending="additive",
-                contrast_limits=self.getContrastLimits(self.dtype),
-            )
-            layer.events.contrast_limits.connect(self.signalContrastLimits)
-            self.resetView()
-
-        layer = self.viewer.layers[channel_name]
-        layer.data = image
-        layer.contrast_limits = self.contrastManager.get_limits(channel_name)
-        layer.refresh()
-
     def signalContrastLimits(self, event):
         layer = event.source
         min_val, max_val = map(float, layer.contrast_limits)
@@ -6806,9 +7067,10 @@ class NapariMosaicDisplayWidget(QWidget):
     signal_layers_initialized = Signal(bool)
     signal_shape_drawn = Signal(list)
 
-    def __init__(self, objectiveStore, contrastManager, parent=None):
+    def __init__(self, objectiveStore, camera, contrastManager, parent=None):
         super().__init__(parent)
         self.objectiveStore = objectiveStore
+        self.camera = camera
         self.contrastManager = contrastManager
         self.viewer = napari.Viewer(show=False)
         self.layout = QVBoxLayout()
@@ -6834,10 +7096,9 @@ class NapariMosaicDisplayWidget(QWidget):
         self.mosaic_dtype = None
 
     def customizeViewer(self):
-        # hide status bar
-        if hasattr(self.viewer.window, "_status_bar"):
-            self.viewer.window._status_bar.hide()
-
+        # # hide status bar
+        # if hasattr(self.viewer.window, "_status_bar"):
+        #     self.viewer.window._status_bar.hide()
         self.viewer.bind_key("D", self.toggle_draw_mode)
 
     def toggle_draw_mode(self, viewer):
@@ -6952,8 +7213,9 @@ class NapariMosaicDisplayWidget(QWidget):
 
     def updateMosaic(self, image, x_mm, y_mm, k, channel_name):
         # calculate pixel size
-        downsample_factor = max(1, int(MOSAIC_VIEW_TARGET_PIXEL_SIZE_UM / self.objectiveStore.get_pixel_size()))
-        image_pixel_size_um = self.objectiveStore.get_pixel_size() * downsample_factor
+        pixel_size_um = self.objectiveStore.get_pixel_size_factor() * self.camera.get_pixel_size_binned_um()
+        downsample_factor = max(1, int(MOSAIC_VIEW_TARGET_PIXEL_SIZE_UM / pixel_size_um))
+        image_pixel_size_um = pixel_size_um * downsample_factor
         image_pixel_size_mm = image_pixel_size_um / 1000
         image_dtype = image.dtype
 
@@ -7159,16 +7421,25 @@ class NapariMosaicDisplayWidget(QWidget):
             self.signal_shape_drawn.emit([])
 
     def clearAllLayers(self):
-        self.clear_shape()
-        self.viewer.layers.clear()
-        self.viewer_extents = None
-        self.top_left_coordinate = None
-        self.dtype = None
+        # Keep the Manual ROI layer and clear the content of all other layers
+        for layer in self.viewer.layers:
+            if layer.name == "Manual ROI":
+                continue
+
+            if hasattr(layer, "data") and hasattr(layer.data, "shape"):
+                # Create an empty array matching the layer's dimensions
+                if len(layer.data.shape) == 3 and layer.data.shape[2] == 3:  # RGB
+                    empty_data = np.zeros((layer.data.shape[0], layer.data.shape[1], 3), dtype=layer.data.dtype)
+                else:  # Grayscale
+                    empty_data = np.zeros((layer.data.shape[0], layer.data.shape[1]), dtype=layer.data.dtype)
+
+                layer.data = empty_data
+
         self.channels = set()
-        self.dz_um = None
-        self.Nz = None
-        self.layers_initialized = False
-        self.signal_layers_initialized.emit(self.layers_initialized)
+
+        for layer in self.viewer.layers:
+            layer.refresh()
+
         self.signal_clear_viewer.emit()
 
     def activate(self):
@@ -7380,6 +7651,7 @@ class TrackingControllerWidget(QFrame):
         objective = self.dropdown_objective.currentText()
         self.trackingController.objective = objective
         # self.internal_state.data['Objective'] = self.objective
+        # TODO: these pixel size code needs to be updated.
         pixel_size_um = CAMERA_PIXEL_SIZE_UM[CAMERA_SENSOR] / (
             TUBE_LENS_MM / (OBJECTIVES[objective]["tube_lens_f_mm"] / OBJECTIVES[objective]["magnification"])
         )
@@ -7393,6 +7665,7 @@ class TrackingControllerWidget(QFrame):
         magnification = objective_info["magnification"]
         objective_tube_lens_mm = objective_info["tube_lens_f_mm"]
         tube_lens_mm = TUBE_LENS_MM
+        # TODO: these pixel size code needs to be updated.
         pixel_size_um = CAMERA_PIXEL_SIZE_UM[CAMERA_SENSOR]
         pixel_size_xy = pixel_size_um / (magnification / (objective_tube_lens_mm / tube_lens_mm))
         self.trackingController.update_pixel_size(pixel_size_xy)
@@ -8734,8 +9007,8 @@ class CalibrationLiveViewer(QWidget):
         self.viewbox.invertY(True)
 
         # Set appropriate panning limits based on the acquisition image or plate size
-        xmax = int(Acquisition.CROP_WIDTH * Acquisition.IMAGE_DISPLAY_SCALING_FACTOR)
-        ymax = int(Acquisition.CROP_HEIGHT * Acquisition.IMAGE_DISPLAY_SCALING_FACTOR)
+        xmax = int(CAMERA_CONFIG.CROP_WIDTH_UNBINNED)
+        ymax = int(CAMERA_CONFIG.CROP_HEIGHT_UNBINNED)
         self.viewbox.setLimits(xMin=0, xMax=xmax, yMin=0, yMax=ymax)
 
         self.img_item = pg.ImageItem()

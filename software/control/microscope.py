@@ -37,8 +37,8 @@ class Microscope(QObject):
         super().__init__()
         self._log = squid.logging.get_logger(self.__class__.__name__)
         if microscope is None:
-            self.initialize_camera(is_simulation=is_simulation)
             self.initialize_microcontroller(is_simulation=is_simulation)
+            self.initialize_camera(is_simulation=is_simulation)
             self.initialize_core_components()
             if not is_simulation:
                 self.initialize_peripherals()
@@ -92,7 +92,7 @@ class Microscope(QObject):
                 self.nl5.start_acquisition()
             else:
                 illumination_time_us = 1000.0 * illumination_time if illumination_time else 0
-                self.log.debug(
+                self._log.debug(
                     f"Sending hw trigger with illumination_time={illumination_time_us if illumination_time else None} [us]"
                 )
                 self.microcontroller.send_hardware_trigger(True if illumination_time else False, illumination_time_us)
@@ -100,7 +100,7 @@ class Microscope(QObject):
 
         def acquisition_camera_hw_strobe_delay_fn(strobe_delay_ms: float) -> bool:
             strobe_delay_us = int(1000 * strobe_delay_ms)
-            self.log.debug(f"Setting microcontroller strobe delay to {strobe_delay_us} [us]")
+            self._log.debug(f"Setting microcontroller strobe delay to {strobe_delay_us} [us]")
             self.microcontroller.set_strobe_delay_us(strobe_delay_us)
             self.microcontroller.wait_till_operation_is_completed()
 
@@ -113,14 +113,17 @@ class Microscope(QObject):
             hw_set_strobe_delay_ms_fn=acquisition_camera_hw_strobe_delay_fn,
         )
 
-        self.camera.set_pixel_format(squid.config.CameraPixelFormat.from_string(DEFAULT_PIXEL_FORMAT))
+        self.camera.set_pixel_format(squid.config.CameraPixelFormat.from_string(CAMERA_CONFIG.PIXEL_FORMAT_DEFAULT))
         self.camera.set_acquisition_mode(CameraAcquisitionMode.SOFTWARE_TRIGGER)
 
-        self.camera_focus = squid.camera.utils.get_camera(
-            squid.config.get_autofocus_camera_config(), simulated=is_simulation
-        )
-        self.camera_focus.set_pixel_format(squid.config.CameraPixelFormat.from_string("MONO8"))
-        self.camera_focus.set_acquisition_mode(CameraAcquisitionMode.SOFTWARE_TRIGGER)
+        if SUPPORT_LASER_AUTOFOCUS:
+            self.camera_focus = squid.camera.utils.get_camera(
+                squid.config.get_autofocus_camera_config(), simulated=is_simulation
+            )
+            self.camera_focus.set_pixel_format(squid.config.CameraPixelFormat.from_string("MONO8"))
+            self.camera_focus.set_acquisition_mode(CameraAcquisitionMode.SOFTWARE_TRIGGER)
+        else:
+            self.camera_focus = None
 
     def initialize_microcontroller(self, is_simulation):
         self.microcontroller = microcontroller.Microcontroller(
@@ -198,7 +201,7 @@ class Microscope(QObject):
             self.laserAutofocusController,
             self.objectiveStore,
             self.channelConfigurationManager,
-            scanCoordinates=None,
+            scan_coordinates=None,
             parent=self,
             headless=True,
         )
@@ -223,7 +226,7 @@ class Microscope(QObject):
             try:
                 self.xlight = serial_peripherals.XLight(XLIGHT_SERIAL_NUMBER, XLIGHT_SLEEP_TIME_FOR_WHEEL)
             except Exception:
-                self.log.error("Error initializing Spinning Disk Confocal")
+                self._log.error("Error initializing Spinning Disk Confocal")
                 raise
 
         if ENABLE_NL5:
@@ -232,7 +235,7 @@ class Microscope(QObject):
 
                 self.nl5 = NL5.NL5()
             except Exception:
-                self.log.error("Error initializing NL5")
+                self._log.error("Error initializing NL5")
                 raise
 
         if ENABLE_CELLX:
@@ -242,7 +245,7 @@ class Microscope(QObject):
                     self.cellx.set_modulation(channel, CELLX_MODULATION)
                     self.cellx.turn_on(channel)
             except Exception:
-                self.log.error("Error initializing CellX")
+                self._log.error("Error initializing CellX")
                 raise
 
         if USE_LDI_SERIAL_CONTROL:
@@ -252,7 +255,7 @@ class Microscope(QObject):
                     self.microcontroller, self.ldi.intensity_mode, self.ldi.shutter_mode, LightSourceType.LDI, self.ldi
                 )
             except Exception:
-                self.log.error("Error initializing LDI")
+                self._log.error("Error initializing LDI")
                 raise
 
         if USE_CELESTA_ETHENET_CONTROL:
@@ -268,7 +271,7 @@ class Microscope(QObject):
                     self.celesta,
                 )
             except Exception:
-                self.log.error("Error initializing CELESTA")
+                self._log.error("Error initializing CELESTA")
                 raise
 
         if USE_ZABER_EMISSION_FILTER_WHEEL:
@@ -278,14 +281,14 @@ class Microscope(QObject):
                 )
                 self.emission_filter_wheel.start_homing()
             except Exception:
-                self.log.error("Error initializing Zaber Emission Filter Wheel")
+                self._log.error("Error initializing Zaber Emission Filter Wheel")
                 raise
         if USE_OPTOSPIN_EMISSION_FILTER_WHEEL:
             try:
                 self.emission_filter_wheel = serial_peripherals.Optospin(SN=FILTER_CONTROLLER_SERIAL_NUMBER)
                 self.emission_filter_wheel.set_speed(OPTOSPIN_EMISSION_FILTER_WHEEL_SPEED_HZ)
             except Exception:
-                self.log.error("Error initializing Optospin Emission Filter Wheel")
+                self._log.error("Error initializing Optospin Emission Filter Wheel")
                 raise
 
         if USE_SQUID_FILTERWHEEL:
@@ -295,7 +298,7 @@ class Microscope(QObject):
             try:
                 self.objective_changer = ObjectiveChanger2PosController(sn=XERYON_SERIAL_NUMBER, stage=self.stage)
             except Exception:
-                self.log.error("Error initializing Xeryon objective switcher")
+                self._log.error("Error initializing Xeryon objective switcher")
                 raise
 
     def initialize_simulation_objects(self):
@@ -382,15 +385,7 @@ class Microscope(QObject):
         return self.stage.get_pos().z_mm
 
     def move_z_to(self, z_mm, blocking=True):
-        self.stage.move_z_to(z_mm, blocking=blocking)
-        clear_backlash = z_mm >= self.stage.get_pos().z_mm
-        # clear backlash if moving backward in open loop mode
-        if blocking and clear_backlash:
-            distance_to_clear_backlash = self.stage.get_config().Z_AXIS.convert_to_real_units(
-                max(160, 20 * self.stage.get_config().Z_AXIS.MICROSTEPS_PER_STEP)
-            )
-            self.stage.move_z(-distance_to_clear_backlash)
-            self.stage.move_z(distance_to_clear_backlash)
+        self.stage.move_z_to(z_mm)
 
     def start_live(self):
         self.camera.start_streaming()
@@ -431,7 +426,7 @@ class Microscope(QObject):
         self.objectiveStore.set_current_objective(objective)
 
     def set_coordinates(self, wellplate_format, selected, scan_size_mm, overlap_percent):
-        self.scanCoordinates = ScanCoordinatesSiLA2(self.objectiveStore)
+        self.scanCoordinates = ScanCoordinatesSiLA2(self.objectiveStore, self.camera.get_pixel_size_unbinned_um())
         self.scanCoordinates.get_scan_coordinates_from_selected_wells(
             wellplate_format, selected, scan_size_mm, overlap_percent
         )
@@ -454,8 +449,9 @@ class Microscope(QObject):
 
 
 class ScanCoordinatesSiLA2:
-    def __init__(self, objectiveStore):
+    def __init__(self, objectiveStore, camera_sensor_pixel_size_um):
         self.objectiveStore = objectiveStore
+        self.camera_sensor_pixel_size_um = camera_sensor_pixel_size_um
         self.region_centers = {}
         self.region_fov_coordinates = {}
         self.wellplate_settings = None
@@ -567,8 +563,8 @@ class ScanCoordinatesSiLA2:
 
         # if scan_size_mm is None:
         #    scan_size_mm = self.wellplate_settings.well_size_mm
-        pixel_size_um = self.objectiveStore.get_pixel_size()
-        fov_size_mm = (pixel_size_um / 1000) * Acquisition.CROP_WIDTH
+        pixel_size_um = self.objectiveStore.get_pixel_size_factor() * self.camera_sensor_pixel_size_um
+        fov_size_mm = (pixel_size_um / 1000) * CAMERA_CONFIG.CROP_WIDTH_UNBINNED
         step_size_mm = fov_size_mm * (1 - overlap_percent / 100)
 
         steps = math.floor(scan_size_mm / step_size_mm)

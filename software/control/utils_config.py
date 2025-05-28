@@ -25,14 +25,14 @@ from control._def import (
     LASER_AF_MIN_PEAK_PROMINENCE,
     LASER_AF_SPOT_SPACING,
 )
-from control.utils import SpotDetectionMode
+from control._def import SpotDetectionMode
 
 
 class LaserAFConfig(BaseModel):
     """Pydantic model for laser autofocus configuration"""
 
-    x_offset: float = 0.0
-    y_offset: float = 0.0
+    x_offset: float = 0
+    y_offset: float = 0
     width: int = LASER_AF_CROP_WIDTH
     height: int = LASER_AF_CROP_HEIGHT
     pixel_to_um: float = 1
@@ -50,7 +50,7 @@ class LaserAFConfig(BaseModel):
     laser_af_range: float = LASER_AF_RANGE  # Maximum reasonable displacement in um
     focus_camera_exposure_time_ms: float = FOCUS_CAMERA_EXPOSURE_TIME_MS
     focus_camera_analog_gain: float = FOCUS_CAMERA_ANALOG_GAIN
-    spot_detection_mode: SpotDetectionMode = LASER_AF_SPOT_DETECTION_MODE
+    spot_detection_mode: SpotDetectionMode = SpotDetectionMode(LASER_AF_SPOT_DETECTION_MODE)
     y_window: int = LASER_AF_Y_WINDOW  # Half-height of y-axis crop
     x_window: int = LASER_AF_X_WINDOW  # Half-width of centroid window
     min_peak_width: float = LASER_AF_MIN_PEAK_WIDTH  # Minimum width of peaks

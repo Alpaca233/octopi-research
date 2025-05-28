@@ -35,7 +35,6 @@ if USE_PRIOR_STAGE:
 else:
     import squid.stage.cephla
 from control.piezo import PiezoStage
-from control._def import ZStageConfig
 
 if USE_XERYON:
     from control.objective_changer_2_pos_controller import (
@@ -168,7 +167,6 @@ class HighContentScreeningGui(QMainWindow):
             self.addDockWidget(Qt.LeftDockWidgetArea, self.jupyter_dock)
 
     def loadObjects(self, is_simulation):
-        self.illuminationController = None
         if is_simulation:
             self.loadSimulationObjects()
         else:
@@ -268,9 +266,13 @@ class HighContentScreeningGui(QMainWindow):
                 self.imageDisplayWindow,
             )
         if WELLPLATE_FORMAT == "glass slide":
-            self.navigationViewer = core.NavigationViewer(self.objectiveStore, sample="4 glass slide")
+            self.navigationViewer = core.NavigationViewer(
+                self.objectiveStore, self.camera.get_pixel_size_unbinned_um(), sample="4 glass slide"
+            )
         else:
-            self.navigationViewer = core.NavigationViewer(self.objectiveStore, sample=WELLPLATE_FORMAT)
+            self.navigationViewer = core.NavigationViewer(
+                self.objectiveStore, self.camera.get_pixel_size_unbinned_um(), sample=WELLPLATE_FORMAT
+            )
         self.scanCoordinates = core.ScanCoordinates(
             objectiveStore=self.objectiveStore, navigationViewer=self.navigationViewer, stage=self.stage
         )
@@ -283,7 +285,7 @@ class HighContentScreeningGui(QMainWindow):
             self.autofocusController,
             self.objectiveStore,
             self.channelConfigurationManager,
-            scanCoordinates=self.scanCoordinates,
+            scan_coordinates=self.scanCoordinates,
             fluidics=self.fluidics,
             parent=self,
         )
@@ -319,6 +321,7 @@ class HighContentScreeningGui(QMainWindow):
         self.microcontroller = microcontroller.Microcontroller(
             serial_device=microcontroller.get_microcontroller_serial_device(simulated=True)
         )
+        self.illuminationController = IlluminationController(self.microcontroller)
         if USE_PRIOR_STAGE:
             self.stage: squid.abc.AbstractStage = squid.stage.prior.PriorStage(
                 sn=PRIOR_STAGE_SN, stage_config=squid.config.get_stage_config()
@@ -374,6 +377,8 @@ class HighContentScreeningGui(QMainWindow):
         except Exception:
             self.log.error(f"Error initializing Microcontroller")
             raise
+
+        self.illuminationController = IlluminationController(self.microcontroller)
 
         if USE_PRIOR_STAGE:
             self.stage: squid.abc.AbstractStage = squid.stage.prior.PriorStage(
@@ -773,7 +778,7 @@ class HighContentScreeningGui(QMainWindow):
         if not self.live_only_mode:
             if USE_NAPARI_FOR_MULTIPOINT:
                 self.napariMultiChannelWidget = widgets.NapariMultiChannelWidget(
-                    self.objectiveStore, self.contrastManager
+                    self.objectiveStore, self.camera, self.contrastManager
                 )
                 self.imageDisplayTabs.addTab(self.napariMultiChannelWidget, "Multichannel Acquisition")
             else:
@@ -782,7 +787,7 @@ class HighContentScreeningGui(QMainWindow):
 
             if USE_NAPARI_FOR_MOSAIC_DISPLAY:
                 self.napariMosaicDisplayWidget = widgets.NapariMosaicDisplayWidget(
-                    self.objectiveStore, self.contrastManager
+                    self.objectiveStore, self.camera, self.contrastManager
                 )
                 self.imageDisplayTabs.addTab(self.napariMosaicDisplayWidget, "Mosaic View")
 
@@ -1000,7 +1005,8 @@ class HighContentScreeningGui(QMainWindow):
         self.connectSlidePositionController()
 
         self.navigationViewer.signal_coordinates_clicked.connect(self.move_from_click_mm)
-        self.objectivesWidget.signal_objective_changed.connect(self.navigationViewer.on_objective_changed)
+        self.objectivesWidget.signal_objective_changed.connect(self.navigationViewer.redraw_fov)
+        self.cameraSettingWidget.signal_binning_changed.connect(self.navigationViewer.redraw_fov)
         if ENABLE_FLEXIBLE_MULTIPOINT:
             self.objectivesWidget.signal_objective_changed.connect(self.flexibleMultiPointWidget.update_fov_positions)
         # TODO(imo): Fix position updates after removal of navigation controller
@@ -1626,7 +1632,7 @@ class HighContentScreeningGui(QMainWindow):
 
     def move_from_click_image(self, click_x, click_y, image_width, image_height):
         if self.navigationWidget.get_click_to_move_enabled():
-            pixel_size_um = self.objectiveStore.get_pixel_size()
+            pixel_size_um = self.objectiveStore.get_pixel_size_factor() * self.camera.get_pixel_size_binned_um()
 
             pixel_sign_x = 1
             pixel_sign_y = 1 if INVERTED_OBJECTIVE else -1
@@ -1671,13 +1677,6 @@ class HighContentScreeningGui(QMainWindow):
 
         self.liveController.stop_live()
         self.camera.stop_streaming()
-
-        if HOMING_ENABLED_X and HOMING_ENABLED_Y:
-            # TODO(imo): Why do we move forward 0.1, then move to 30? AKA why not just move to 30?
-            self.stage.move_x(0.1)
-            self.stage.move_x_to(30)
-            self.stage.move_y(0.1)
-            self.stage.move_y_to(30)
 
         self.microcontroller.turn_off_all_pid()
 
