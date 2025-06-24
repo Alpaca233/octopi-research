@@ -250,9 +250,7 @@ def find_spot_location(
         # Apply Gaussian filter if requested
         if filter_sigma is not None and filter_sigma > 0:
             filtered = gaussian_filter(image.astype(float), sigma=filter_sigma)
-            filtered = np.clip(filtered, 0, 255).astype(np.uint8)
-        else:
-            filtered = image.copy()
+            image = np.clip(filtered, 0, 255).astype(np.uint8)
 
         # Get the y position of the spots
         y_intensity_profile = np.sum(image, axis=1)
