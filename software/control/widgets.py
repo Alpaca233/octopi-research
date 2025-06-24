@@ -661,6 +661,7 @@ class LaserAutofocusSettingWidget(QWidget):
         self._add_spinbox(spot_detection_layout, "Min Peak Distance:", "min_peak_distance", 1, 100, 1)
         self._add_spinbox(spot_detection_layout, "Min Peak Prominence:", "min_peak_prominence", 0.01, 1.0, 2, 0.1)
         self._add_spinbox(spot_detection_layout, "Spot Spacing (pixels):", "spot_spacing", 1, 1000, 1)
+        self._add_spinbox(spot_detection_layout, "Filter Sigma:", "filter_sigma", 0, 100, 1, allow_none=True)
 
         # Spot detection mode combo box
         spot_mode_layout = QHBoxLayout()
@@ -719,19 +720,34 @@ class LaserAutofocusSettingWidget(QWidget):
         self.characterization_checkbox.toggled.connect(self.toggle_characterization_mode)
 
     def _add_spinbox(
-        self, layout, label: str, property_name: str, min_val: float, max_val: float, decimals: int, step: float = 1
+        self,
+        layout,
+        label: str,
+        property_name: str,
+        min_val: float,
+        max_val: float,
+        decimals: int,
+        step: float = 1,
+        allow_none=False,
     ) -> None:
         """Helper method to add a labeled spinbox to the layout."""
         box_layout = QHBoxLayout()
         box_layout.addWidget(QLabel(label))
 
         spinbox = QDoubleSpinBox()
-        spinbox.setRange(min_val, max_val)
+        if allow_none:
+            spinbox.setRange(min_val - step, max_val)
+            spinbox.setSpecialValueText("None")
+        else:
+            spinbox.setRange(min_val, max_val)
         spinbox.setDecimals(decimals)
         spinbox.setSingleStep(step)
         # Get initial value from laser_af_properties
         current_value = getattr(self.laserAutofocusController.laser_af_properties, property_name)
-        spinbox.setValue(current_value)
+        if allow_none and current_value is None:
+            spinbox.setValue(min_val - step)
+        else:
+            spinbox.setValue(current_value)
 
         box_layout.addWidget(spinbox)
         layout.addLayout(box_layout)
@@ -802,6 +818,7 @@ class LaserAutofocusSettingWidget(QWidget):
             "min_peak_distance": self.spinboxes["min_peak_distance"].value(),
             "min_peak_prominence": self.spinboxes["min_peak_prominence"].value(),
             "spot_spacing": self.spinboxes["spot_spacing"].value(),
+            "filter_sigma": self.spinboxes["filter_sigma"].value(),
             "focus_camera_exposure_time_ms": self.exposure_spinbox.value(),
             "focus_camera_analog_gain": self.analog_gain_spinbox.value(),
             "has_reference": False,
@@ -870,13 +887,12 @@ class LaserAutofocusSettingWidget(QWidget):
             "spot_spacing": self.spinboxes["spot_spacing"].value(),
         }
         mode = self.spot_mode_combo.currentData()
+        sigma = self.spinboxes["filter_sigma"].value()
 
         frame = self.illuminate_and_get_frame()
         if frame is not None:
             try:
-                result = utils.find_spot_location(
-                    frame, mode=mode, params=params, filter_sigma=LASER_AF_FILTER_SIGMA, debug_plot=True
-                )
+                result = utils.find_spot_location(frame, mode=mode, params=params, filter_sigma=sigma, debug_plot=True)
                 if result is not None:
                     x, y = result
                     self.signal_laser_spot_location.emit(frame, x, y)

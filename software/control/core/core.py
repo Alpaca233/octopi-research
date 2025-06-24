@@ -4904,7 +4904,7 @@ class LaserAutofocusController(QObject):
                     image,
                     mode=self.laser_af_properties.spot_detection_mode,
                     params=spot_detection_params,
-                    filter_sigma=LASER_AF_FILTER_SIGMA,
+                    filter_sigma=self.laser_af_properties.filter_sigma,
                 )
                 if result is None:
                     self._log.warning(
