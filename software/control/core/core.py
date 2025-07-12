@@ -712,12 +712,13 @@ class SlidePositionControlWorker(QObject):
     signal_stop_live = Signal()
     signal_resume_live = Signal()
 
-    def __init__(self, slidePositionController, stage: AbstractStage, home_x_and_y_separately=False):
+    def __init__(self, slidePositionController, stage: AbstractStage, home_x_and_y_separately=False, headless=False):
         QObject.__init__(self)
         self.slidePositionController = slidePositionController
         self.stage = stage
         self.liveController = self.slidePositionController.liveController
         self.home_x_and_y_separately = home_x_and_y_separately
+        self.headless = headless
 
     def move_to_slide_loading_position(self):
         was_live = self.liveController.is_live
@@ -748,7 +749,6 @@ class SlidePositionControlWorker(QObject):
             # home for the first time
             if not self.slidePositionController.homing_done:
                 print("running homing first")
-                timestamp_start = time.time()
                 # x needs to be at > + 20 mm when homing y
                 self.stage.move_x(20)
                 self.stage.home(x=False, y=True, z=False, theta=False)
@@ -791,7 +791,8 @@ class SlidePositionControlWorker(QObject):
             self.signal_resume_live.emit()
 
         self.slidePositionController.slide_loading_position_reached = True
-        self.finished.emit()
+        if not self.headless:
+            self.finished.emit()
 
     def move_to_slide_scanning_position(self):
         was_live = self.liveController.is_live
@@ -803,8 +804,6 @@ class SlidePositionControlWorker(QObject):
         if self.slidePositionController.is_for_wellplate:
             # home for the first time
             if not self.slidePositionController.homing_done:
-                timestamp_start = time.time()
-
                 # x needs to be at > + 20 mm when homing y
                 self.stage.move_x_to(20)
                 # home y
@@ -848,7 +847,8 @@ class SlidePositionControlWorker(QObject):
             self.signal_resume_live.emit()
 
         self.slidePositionController.slide_scanning_position_reached = True
-        self.finished.emit()
+        if not self.headless:
+            self.finished.emit()
 
 
 class SlidePositionController(QObject):

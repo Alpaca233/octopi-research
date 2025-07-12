@@ -7,6 +7,7 @@ from PyQt5.QtCore import QObject
 
 import control.core.core as core
 from control._def import *
+import control.utils as utils
 import squid.camera.utils
 from squid.abc import CameraAcquisitionMode
 import squid.stage.cephla
@@ -37,14 +38,16 @@ class Microscope(QObject):
         super().__init__()
         self._log = squid.logging.get_logger(self.__class__.__name__)
         if microscope is None:
-            self.initialize_microcontroller(is_simulation=is_simulation)
-            self.initialize_camera(is_simulation=is_simulation)
-            self.initialize_core_components()
+            self._initialize_microcontroller(is_simulation=is_simulation)
+            self._initialize_camera(is_simulation=is_simulation)
+            self._initialize_core_components()
             if not is_simulation:
-                self.initialize_peripherals()
+                self._initialize_peripherals()
             else:
-                self.initialize_simulation_objects()
-            self.setup_hardware()
+                self._initialize_simulation_objects()
+            self._setup_hardware()
+            self._home_xyz()
+            self.sample_format = None
             self.performance_mode = True
         else:
             self.camera = microscope.camera
@@ -52,6 +55,8 @@ class Microscope(QObject):
             self.stage = microscope.stage
             self.microcontroller = microscope.microcontroller
             self.configurationManager = microscope.configurationManager
+            self.channelConfigurationManager = microscope.channelConfigurationManager
+            self.laserAFSettingManager = microscope.laserAFSettingManager
             self.objectiveStore = microscope.objectiveStore
             self.streamHandler = microscope.streamHandler
             self.liveController = microscope.liveController
@@ -84,7 +89,7 @@ class Microscope(QObject):
             if USE_XERYON:
                 self.objective_changer = microscope.objective_changer
 
-    def initialize_camera(self, is_simulation):
+    def _initialize_camera(self, is_simulation):
         def acquisition_camera_hw_trigger_fn(illumination_time: Optional[float]) -> bool:
             # NOTE(imo): If this succeeds, it means means we sent the request,
             # but we didn't necessarily get confirmation of success.
@@ -125,7 +130,7 @@ class Microscope(QObject):
         else:
             self.camera_focus = None
 
-    def initialize_microcontroller(self, is_simulation):
+    def _initialize_microcontroller(self, is_simulation):
         self.microcontroller = microcontroller.Microcontroller(
             serial_device=microcontroller.get_microcontroller_serial_device(
                 version=CONTROLLER_VERSION, sn=CONTROLLER_SN, simulated=is_simulation
@@ -139,7 +144,7 @@ class Microscope(QObject):
 
         self.home_x_and_y_separately = False
 
-    def initialize_core_components(self):
+    def _initialize_core_components(self):
         if HAS_OBJECTIVE_PIEZO:
             self.piezo = PiezoStage(
                 self.microcontroller,
@@ -207,7 +212,7 @@ class Microscope(QObject):
             headless=True,
         )
 
-    def setup_hardware(self):
+    def _setup_hardware(self):
         self.camera.add_frame_callback(self.streamHandler.on_new_frame)
         self.camera.enable_callbacks(True)
 
@@ -217,7 +222,7 @@ class Microscope(QObject):
             self.camera_focus.enable_callbacks(True)
             self.camera_focus.start_streaming()
 
-    def initialize_peripherals(self):
+    def _initialize_peripherals(self):
         if USE_PRIOR_STAGE:
             self.stage: squid.abc.AbstractStage = squid.stage.prior.PriorStage(
                 sn=PRIOR_STAGE_SN, stage_config=squid.config.get_stage_config()
@@ -302,7 +307,7 @@ class Microscope(QObject):
                 self._log.error("Error initializing Xeryon objective switcher")
                 raise
 
-    def initialize_simulation_objects(self):
+    def _initialize_simulation_objects(self):
         if ENABLE_SPINNING_DISK_CONFOCAL:
             self.xlight = serial_peripherals.XLight_Simulation()
         if ENABLE_NL5:
@@ -330,32 +335,7 @@ class Microscope(QObject):
                 sn=XERYON_SERIAL_NUMBER, stage=self.stage
             )
 
-    def set_channel(self, channel):
-        self.liveController.set_channel(channel)
-
-    def acquire_image(self):
-        # turn on illumination and send trigger
-        if self.liveController.trigger_mode == TriggerMode.SOFTWARE:
-            self.liveController.turn_on_illumination()
-            self.waitForMicrocontroller()
-            self.camera.send_trigger()
-        elif self.liveController.trigger_mode == TriggerMode.HARDWARE:
-            self.microcontroller.send_hardware_trigger(
-                control_illumination=True, illumination_on_time_us=self.camera.get_exposure_time() * 1000
-            )
-
-        # read a frame from camera
-        image = self.camera.read_frame()
-        if image is None:
-            print("self.camera.read_frame() returned None")
-
-        # tunr off the illumination if using software trigger
-        if self.liveController.trigger_mode == TriggerMode.SOFTWARE:
-            self.liveController.turn_off_illumination()
-
-        return image
-
-    def home_xyz(self):
+    def _home_xyz(self):
         if HOMING_ENABLED_Z:
             self.stage.home(x=False, y=False, z=True, theta=False)
         if HOMING_ENABLED_X and HOMING_ENABLED_Y:
@@ -364,17 +344,41 @@ class Microscope(QObject):
             self.stage.home(x=True, y=False, z=False, theta=False)
             self.slidePositionController.homing_done = True
 
+    def load_profile(self, profile_name: str):
+        """
+        Load an acquisition profile previously saved in software/acquisition_configurations
+
+        Args:
+            profile_name: The name of the profile to load.
+        """
+        self.configurationManager.load_profile(profile_name)
+
+    def save_as_profile(self, profile_name: str):
+        """
+        Save the current configuration as a new acquisition profile.
+
+        Args:
+            profile_name: The name of the profile to save.
+        """
+        self.configurationManager.create_new_profile(profile_name)
+
     def move_x(self, distance, blocking=True):
         self.stage.move_x(distance, blocking=blocking)
 
     def move_y(self, distance, blocking=True):
         self.stage.move_y(distance, blocking=blocking)
 
+    def move_z(self, distance, blocking=True):
+        self.stage.move_z(distance, blocking=blocking)
+
     def move_x_to(self, position, blocking=True):
         self.stage.move_x_to(position, blocking=blocking)
 
     def move_y_to(self, position, blocking=True):
         self.stage.move_y_to(position, blocking=blocking)
+
+    def move_z_to(self, z_mm, blocking=True):
+        self.stage.move_z_to(z_mm, blocking=blocking)
 
     def get_x(self):
         return self.stage.get_pos().x_mm
@@ -385,155 +389,59 @@ class Microscope(QObject):
     def get_z(self):
         return self.stage.get_pos().z_mm
 
-    def move_z_to(self, z_mm, blocking=True):
-        self.stage.move_z_to(z_mm)
-
     def start_live(self):
-        self.camera.start_streaming()
         self.liveController.start_live()
 
     def stop_live(self):
         self.liveController.stop_live()
-        self.camera.stop_streaming()
-
-    def waitForMicrocontroller(self, timeout=5.0, error_message=None):
-        try:
-            self.microcontroller.wait_till_operation_is_completed(timeout)
-        except TimeoutError as e:
-            self._log.error(error_message or "Microcontroller operation timed out!")
-            raise e
 
     def close(self):
-        self.stop_live()
-        self.microcontroller.close()
-        if USE_ZABER_EMISSION_FILTER_WHEEL or USE_OPTOSPIN_EMISSION_FILTER_WHEEL:
-            self.emission_filter_wheel.close()
+        self.liveController.stop_live()
+        self.camera.stop_streaming()
         self.camera.close()
+        if SUPPORT_LASER_AUTOFOCUS:
+            self.liveController_focus_camera.stop_live()
+            self.camera_focus.stop_streaming()
+            self.camera_focus.close()
 
-    def to_loading_position(self):
-        was_live = self.liveController.is_live
-        if was_live:
-            self.liveController.stop_live()
+        try:
+            squid.stage.utils.cache_position(pos=self.stage.get_pos(), stage_config=self.stage.get_config())
+        except ValueError as e:
+            self._log.error(f"Couldn't cache position while closing.  Ignoring and continuing. Error is: {e}")
+
+        if USE_ZABER_EMISSION_FILTER_WHEEL or USE_OPTOSPIN_EMISSION_FILTER_WHEEL:
+            self.emission_filter_wheel.set_emission_filter(1)
+            self.emission_filter_wheel.close()
 
         # retract z
-        self.slidePositionController.z_pos = self.stage.get_pos().z_mm  # zpos at the beginning of the scan
-        self.stage.move_z_to(OBJECTIVE_RETRACTED_POS_MM, blocking=False)
-        self.stage.wait_for_idle(SLIDE_POTISION_SWITCHING_TIMEOUT_LIMIT_S)
+        self.stage.move_z_to(0.1)
 
-        print("z retracted")
-        self.slidePositionController.objective_retracted = True
+        # reset objective changer
+        if USE_XERYON:
+            self.objective_changer.moveToZero()
 
-        # move to position
-        # for well plate
-        if self.slidePositionController.is_for_wellplate:
-            # So we can home without issue, set our limits to something large.  Then later reset them back to
-            # the safe values.
-            a_large_limit_mm = 100
-            self.stage.set_limits(
-                x_pos_mm=a_large_limit_mm,
-                x_neg_mm=-a_large_limit_mm,
-                y_pos_mm=a_large_limit_mm,
-                y_neg_mm=-a_large_limit_mm,
-            )
+        self.microcontroller.turn_off_all_pid()
 
-            # home for the first time
-            if not self.slidePositionController.homing_done:
-                print("running homing first")
-                # x needs to be at > + 20 mm when homing y
-                self.stage.move_x(20)
-                self.stage.home(x=False, y=True, z=False, theta=False)
-                self.stage.home(x=True, y=False, z=False, theta=False)
+        if ENABLE_CELLX:
+            for channel in [1, 2, 3, 4]:
+                self.cellx.turn_off(channel)
+            self.cellx.close()
 
-                self.slidePositionController.homing_done = True
-            # homing done previously
-            else:
-                self.stage.move_x_to(20)
-                self.stage.move_y_to(SLIDE_POSITION.LOADING_Y_MM)
-                self.stage.move_x_to(SLIDE_POSITION.LOADING_X_MM)
-            # set limits again
-            self.stage.set_limits(
-                x_pos_mm=self.stage.get_config().X_AXIS.MAX_POSITION,
-                x_neg_mm=self.stage.get_config().X_AXIS.MIN_POSITION,
-                y_pos_mm=self.stage.get_config().Y_AXIS.MAX_POSITION,
-                y_neg_mm=self.stage.get_config().Y_AXIS.MIN_POSITION,
-            )
-        else:
+        self.microcontroller.close()
 
-            # for glass slide
-            if self.slidePositionController.homing_done == False or SLIDE_POTISION_SWITCHING_HOME_EVERYTIME:
-                if self.home_x_and_y_separately:
-                    self.stage.home(x=True, y=False, z=False, theta=False)
-                    self.stage.move_x_to(SLIDE_POSITION.LOADING_X_MM)
+    def to_loading_position(self):
+        worker = core.SlidePositionControlWorker(self.slidePositionController, self.stage, headless=True)
 
-                    self.stage.home(x=False, y=True, z=False, theta=False)
-                    self.stage.move_y_to(SLIDE_POSITION.LOADING_Y_MM)
-                else:
-                    self.stage.home(x=True, y=True, z=False, theta=False)
-
-                    self.stage.move_x_to(SLIDE_POSITION.LOADING_X_MM)
-                    self.stage.move_y_to(SLIDE_POSITION.LOADING_Y_MM)
-                self.slidePositionController.homing_done = True
-            else:
-                self.stage.move_y_to(SLIDE_POSITION.LOADING_Y_MM)
-                self.stage.move_x_to(SLIDE_POSITION.LOADING_X_MM)
-
-        if was_live:
-            self.liveController.start_live()
+        worker.move_to_slide_loading_position()
 
         self.slidePositionController.slide_loading_position_reached = True
 
     def to_scanning_position(self):
-        was_live = self.liveController.is_live
-        if was_live:
-            self.liveController.stop_live()
+        worker = core.SlidePositionControlWorker(self.slidePositionController, self.stage, headless=True)
 
-        # move to position
-        # for well plate
-        if self.slidePositionController.is_for_wellplate:
-            # home for the first time
-            if not self.slidePositionController.homing_done:
 
-                # x needs to be at > + 20 mm when homing y
-                self.stage.move_x_to(20)
-                # home y
-                self.stage.home(x=False, y=True, z=False, theta=False)
-                # home x
-                self.stage.home(x=True, y=False, z=False, theta=False)
-                self.slidePositionController.homing_done = True
+        worker.move_to_slide_scanning_position()
 
-                # move to scanning position
-                self.stage.move_x_to(SLIDE_POSITION.SCANNING_X_MM)
-                self.stage.move_y_to(SLIDE_POSITION.SCANNING_Y_MM)
-            else:
-                self.stage.move_x_to(SLIDE_POSITION.SCANNING_X_MM)
-                self.stage.move_y_to(SLIDE_POSITION.SCANNING_Y_MM)
-        else:
-            if self.slidePositionController.homing_done == False or SLIDE_POTISION_SWITCHING_HOME_EVERYTIME:
-                if self.home_x_and_y_separately:
-                    self.stage.home(x=False, y=True, z=False, theta=False)
-
-                    self.stage.move_y_to(SLIDE_POSITION.SCANNING_Y_MM)
-
-                    self.stage.home(x=True, y=False, z=False, theta=False)
-                    self.stage.move_x_to(SLIDE_POSITION.SCANNING_X_MM)
-                else:
-                    self.stage.home(x=True, y=True, z=False, theta=False)
-
-                    self.stage.move_y_to(SLIDE_POSITION.SCANNING_Y_MM)
-                    self.stage.move_x_to(SLIDE_POSITION.SCANNING_X_MM)
-                self.slidePositionController.homing_done = True
-            else:
-                self.stage.move_y_to(SLIDE_POSITION.SCANNING_Y_MM)
-                self.stage.move_x_to(SLIDE_POSITION.SCANNING_X_MM)
-
-        # restore z
-        if self.slidePositionController.objective_retracted:
-            self.stage.move_z_to(self.slidePositionController.z_pos)
-            self.slidePositionController.objective_retracted = False
-            print("z position restored")
-
-        if was_live:
-            self.liveController.start_live()
 
         self.slidePositionController.slide_scanning_position_reached = True
 
