@@ -431,18 +431,12 @@ class Microscope(QObject):
 
     def to_loading_position(self):
         worker = core.SlidePositionControlWorker(self.slidePositionController, self.stage, headless=True)
-
         worker.move_to_slide_loading_position()
-
         self.slidePositionController.slide_loading_position_reached = True
 
     def to_scanning_position(self):
         worker = core.SlidePositionControlWorker(self.slidePositionController, self.stage, headless=True)
-
-
         worker.move_to_slide_scanning_position()
-
-
         self.slidePositionController.slide_scanning_position_reached = True
 
     def move_to_position(self, x, y, z):
@@ -450,8 +444,8 @@ class Microscope(QObject):
         self.move_y_to(y)
         self.move_z_to(z)
 
-    def set_objective(self, objective):
-        self.objectiveStore.set_current_objective(objective)
+    def set_objective(self, objective_name: str):
+        self.objectiveStore.set_current_objective(objective_name)
 
     def set_coordinates(self, wellplate_format, selected, scan_size_mm, overlap_percent):
         self.scanCoordinates = ScanCoordinatesSiLA2(self.objectiveStore, self.camera.get_pixel_size_unbinned_um())
@@ -459,19 +453,38 @@ class Microscope(QObject):
             wellplate_format, selected, scan_size_mm, overlap_percent
         )
 
-    def perform_scanning(self, path, experiment_ID, z_pos_um, channels, use_laser_af=False, dz=1.5, Nz=1):
+    def set_saving_path(self, path: str):
+        self.multipointController.set_base_path(path)
+
+    def perform_scanning(self, experiment_ID, z_pos_um, channels, use_laser_af=False, dz=1.5, Nz=1):
+        # TODO: check disk space
         if self.scanCoordinates is not None:
             self.multipointController.scanCoordinates = self.scanCoordinates
         self.move_z_to(z_pos_um / 1000)
         self.multipointController.set_deltaZ(dz)
         self.multipointController.set_NZ(Nz)
         self.multipointController.set_z_range(z_pos_um / 1000, z_pos_um / 1000 + dz / 1000 * (Nz - 1))
-        self.multipointController.set_base_path(path)
         if use_laser_af:
             self.multipointController.set_reflection_af_flag(True)
         self.multipointController.set_selected_configurations(channels)
         self.multipointController.start_new_experiment(experiment_ID)
         self.multipointController.run_acquisition()
+
+    def snap_current_fov(self, experiment_ID):
+        self.multipointController.set_deltaZ(0)
+        self.multipointController.set_NZ(1)
+        self.multipointController.set_deltat(0)
+        self.multipointController.set_Nt(1)
+        self.multipointController.set_use_piezo(False)
+        self.multipointController.set_af_flag(False)
+        self.multipointController.set_reflection_af_flag(False)
+        self.multipointController.set_use_fluidics(False)
+
+        z = self.stage.get_pos().z_mm
+        self.multipointController.set_z_range(z, z)
+        # Start the acquisition process for the single FOV
+        self.multipointController.start_new_experiment("snapped images" + experiment_ID)
+        self.multipointController.run_acquisition(acquire_current_fov=True)
 
     def set_illumination_intensity(self, channel, intensity, objective=None):
         if objective is None:
