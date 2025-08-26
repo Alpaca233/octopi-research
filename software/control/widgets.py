@@ -4,7 +4,8 @@ import sys
 from typing import Optional
 
 import squid.logging
-from control.core.core import TrackingController, MultiPointController, LiveController
+from control.core.core import TrackingController, LiveController
+from control.core.multi_point_controller import MultiPointController
 from control.microcontroller import Microcontroller
 from control.piezo import PiezoStage
 import control.utils as utils
@@ -105,147 +106,6 @@ class CollapsibleGroupBox(QGroupBox):
 
     def toggle_content(self, state):
         self.content_widget.setVisible(state)
-
-
-"""
-# Planning to replace this with a better design
-class ConfigEditorForAcquisitions(QDialog):
-    def __init__(self, configManager, only_z_offset=True):
-        super().__init__()
-
-        self.config = configManager
-
-        self.only_z_offset = only_z_offset
-
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area_widget = QWidget()
-        self.scroll_area_layout = QVBoxLayout()
-        self.scroll_area_widget.setLayout(self.scroll_area_layout)
-        self.scroll_area.setWidget(self.scroll_area_widget)
-
-        self.save_config_button = QPushButton("Save Config")
-        self.save_config_button.clicked.connect(self.save_config)
-        self.save_to_file_button = QPushButton("Save to File")
-        self.save_to_file_button.clicked.connect(self.save_to_file)
-        self.load_config_button = QPushButton("Load Config from File")
-        self.load_config_button.clicked.connect(lambda: self.load_config_from_file(None))
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.scroll_area)
-        layout.addWidget(self.save_config_button)
-        layout.addWidget(self.save_to_file_button)
-        layout.addWidget(self.load_config_button)
-
-        self.config_value_widgets = {}
-
-        self.setLayout(layout)
-        self.setWindowTitle("Configuration Editor")
-        self.init_ui(only_z_offset)
-
-    def init_ui(self, only_z_offset=None):
-        if only_z_offset is None:
-            only_z_offset = self.only_z_offset
-        self.groups = {}
-        for section in self.config.configurations:
-            if not only_z_offset:
-                group_box = CollapsibleGroupBox(section.name)
-            else:
-                group_box = QGroupBox(section.name)
-
-            group_layout = QVBoxLayout()
-
-            section_value_widgets = {}
-
-            self.groups[str(section.id)] = group_box
-
-            for option in section.__dict__.keys():
-                if option.startswith("_") and option.endswith("_options"):
-                    continue
-                if option == "id":
-                    continue
-                if only_z_offset and option != "z_offset":
-                    continue
-                option_value = str(getattr(section, option))
-                option_name = QLabel(option)
-                option_layout = QHBoxLayout()
-                option_layout.addWidget(option_name)
-                if f"_{option}_options" in list(section.__dict__.keys()):
-                    option_value_list = getattr(section, f"_{option}_options")
-                    values = option_value_list.strip("[]").split(",")
-                    for i in range(len(values)):
-                        values[i] = values[i].strip()
-                    if option_value not in values:
-                        values.append(option_value)
-                    combo_box = QComboBox()
-                    combo_box.addItems(values)
-                    combo_box.setCurrentText(option_value)
-                    option_layout.addWidget(combo_box)
-                    section_value_widgets[option] = combo_box
-                else:
-                    option_input = QLineEdit(option_value)
-                    option_layout.addWidget(option_input)
-                    section_value_widgets[option] = option_input
-                group_layout.addLayout(option_layout)
-
-            self.config_value_widgets[str(section.id)] = section_value_widgets
-            if not only_z_offset:
-                group_box.content.addLayout(group_layout)
-            else:
-                group_box.setLayout(group_layout)
-
-            self.scroll_area_layout.addWidget(group_box)
-
-    def save_config(self):
-        for section in self.config.configurations:
-            for option in section.__dict__.keys():
-                if option.startswith("_") and option.endswith("_options"):
-                    continue
-                old_val = getattr(section, option)
-                if option == "id":
-                    continue
-                elif option == "camera_sn":
-                    option_name_in_xml = "CameraSN"
-                else:
-                    option_name_in_xml = option.replace("_", " ").title().replace(" ", "")
-                try:
-                    widget = self.config_value_widgets[str(section.id)][option]
-                except KeyError:
-                    continue
-                if type(widget) is QLineEdit:
-                    self.config.update_configuration(section.id, option_name_in_xml, widget.text())
-                else:
-                    self.config.update_configuration(section.id, option_name_in_xml, widget.currentText())
-        self.config.configurations = []
-        self.config.read_configurations()
-
-    def save_to_file(self):
-        self.save_config()
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Acquisition Config File", "", "XML Files (*.xml);;All Files (*)"
-        )
-        if file_path:
-            if not self.config.write_configuration(file_path):
-                QMessageBox.warning(
-                    self, "Warning", f"Failed to write config to file '{file_path}'.  Check permissions!"
-                )
-
-    def load_config_from_file(self, only_z_offset=None):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Load Acquisition Config File", "", "XML Files (*.xml);;All Files (*)"
-        )
-        if file_path:
-            self.config.config_filename = file_path
-            self.config.configurations = []
-            self.config.read_configurations()
-            # Clear and re-initialize the UI
-            self.scroll_area_widget.deleteLater()
-            self.scroll_area_widget = QWidget()
-            self.scroll_area_layout = QVBoxLayout()
-            self.scroll_area_widget.setLayout(self.scroll_area_layout)
-            self.scroll_area.setWidget(self.scroll_area_widget)
-            self.init_ui(only_z_offset)
-"""
 
 
 class ConfigEditor(QDialog):
@@ -603,7 +463,7 @@ class LaserAutofocusSettingWidget(QWidget):
         exposure_layout.addWidget(QLabel("Focus Camera Exposure (ms):"))
         self.exposure_spinbox = QDoubleSpinBox()
         self.exposure_spinbox.setSingleStep(0.1)
-        self.exposure_spinbox.setRange(*self.liveController.camera.get_exposure_limits())
+        self.exposure_spinbox.setRange(*self.liveController.microscope.camera.get_exposure_limits())
         self.exposure_spinbox.setValue(self.laserAutofocusController.laser_af_properties.focus_camera_exposure_time_ms)
         exposure_layout.addWidget(self.exposure_spinbox)
 
@@ -661,6 +521,7 @@ class LaserAutofocusSettingWidget(QWidget):
         self._add_spinbox(spot_detection_layout, "Min Peak Distance:", "min_peak_distance", 1, 100, 1)
         self._add_spinbox(spot_detection_layout, "Min Peak Prominence:", "min_peak_prominence", 0.01, 1.0, 2, 0.1)
         self._add_spinbox(spot_detection_layout, "Spot Spacing (pixels):", "spot_spacing", 1, 1000, 1)
+        self._add_spinbox(spot_detection_layout, "Filter Sigma:", "filter_sigma", 0, 100, 1, allow_none=True)
 
         # Spot detection mode combo box
         spot_mode_layout = QHBoxLayout()
@@ -719,19 +580,34 @@ class LaserAutofocusSettingWidget(QWidget):
         self.characterization_checkbox.toggled.connect(self.toggle_characterization_mode)
 
     def _add_spinbox(
-        self, layout, label: str, property_name: str, min_val: float, max_val: float, decimals: int, step: float = 1
+        self,
+        layout,
+        label: str,
+        property_name: str,
+        min_val: float,
+        max_val: float,
+        decimals: int,
+        step: float = 1,
+        allow_none=False,
     ) -> None:
         """Helper method to add a labeled spinbox to the layout."""
         box_layout = QHBoxLayout()
         box_layout.addWidget(QLabel(label))
 
         spinbox = QDoubleSpinBox()
-        spinbox.setRange(min_val, max_val)
+        if allow_none:
+            spinbox.setRange(min_val - step, max_val)
+            spinbox.setSpecialValueText("None")
+        else:
+            spinbox.setRange(min_val, max_val)
         spinbox.setDecimals(decimals)
         spinbox.setSingleStep(step)
         # Get initial value from laser_af_properties
         current_value = getattr(self.laserAutofocusController.laser_af_properties, property_name)
-        spinbox.setValue(current_value)
+        if allow_none and current_value is None:
+            spinbox.setValue(min_val - step)
+        else:
+            spinbox.setValue(current_value)
 
         box_layout.addWidget(spinbox)
         layout.addLayout(box_layout)
@@ -802,6 +678,7 @@ class LaserAutofocusSettingWidget(QWidget):
             "min_peak_distance": self.spinboxes["min_peak_distance"].value(),
             "min_peak_prominence": self.spinboxes["min_peak_prominence"].value(),
             "spot_spacing": self.spinboxes["spot_spacing"].value(),
+            "filter_sigma": self.spinboxes["filter_sigma"].value(),
             "focus_camera_exposure_time_ms": self.exposure_spinbox.value(),
             "focus_camera_analog_gain": self.analog_gain_spinbox.value(),
             "has_reference": False,
@@ -837,15 +714,15 @@ class LaserAutofocusSettingWidget(QWidget):
     def illuminate_and_get_frame(self):
         # Get a frame from the live controller.  We need to reach deep into the liveController here which
         # is not ideal.
-        self.liveController.microcontroller.turn_on_AF_laser()
-        self.liveController.microcontroller.wait_till_operation_is_completed()
+        self.liveController.microscope.low_level_drivers.microcontroller.turn_on_AF_laser()
+        self.liveController.microscope.low_level_drivers.microcontroller.wait_till_operation_is_completed()
         self.liveController.trigger_acquisition()
 
         try:
             frame = self.liveController.camera.read_frame()
         finally:
-            self.liveController.microcontroller.turn_off_AF_laser()
-            self.liveController.microcontroller.wait_till_operation_is_completed()
+            self.liveController.microscope.low_level_drivers.microcontroller.turn_off_AF_laser()
+            self.liveController.microscope.low_level_drivers.microcontroller.wait_till_operation_is_completed()
 
         return frame
 
@@ -870,11 +747,12 @@ class LaserAutofocusSettingWidget(QWidget):
             "spot_spacing": self.spinboxes["spot_spacing"].value(),
         }
         mode = self.spot_mode_combo.currentData()
+        sigma = self.spinboxes["filter_sigma"].value()
 
         frame = self.illuminate_and_get_frame()
         if frame is not None:
             try:
-                result = utils.find_spot_location(frame, mode=mode, params=params, debug_plot=True)
+                result = utils.find_spot_location(frame, mode=mode, params=params, filter_sigma=sigma, debug_plot=True)
                 if result is not None:
                     x, y = result
                     self.signal_laser_spot_location.emit(frame, x, y)
@@ -1535,6 +1413,7 @@ class LiveControlWidget(QFrame):
         super().__init__(*args, **kwargs)
         self._log = squid.logging.get_logger(self.__class__.__name__)
         self.liveController: LiveController = liveController
+        self.camera = self.liveController.microscope.camera
         self.streamHandler = streamHandler
         self.objectiveStore = objectiveStore
         self.channelConfigurationManager = channelConfigurationManager
@@ -1558,7 +1437,7 @@ class LiveControlWidget(QFrame):
         # line 0: trigger mode
         self.dropdown_triggerManu = QComboBox()
         self.dropdown_triggerManu.addItems([TriggerMode.SOFTWARE, TriggerMode.HARDWARE, TriggerMode.CONTINUOUS])
-        self.dropdown_triggerManu.setCurrentText(self.liveController.camera.get_acquisition_mode().value)
+        self.dropdown_triggerManu.setCurrentText(self.camera.get_acquisition_mode().value)
         sizePolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.dropdown_triggerManu.setSizePolicy(sizePolicy)
 
@@ -1588,8 +1467,8 @@ class LiveControlWidget(QFrame):
 
         # line 3: exposure time and analog gain associated with the current mode
         self.entry_exposureTime = QDoubleSpinBox()
-        self.entry_exposureTime.setMinimum(self.liveController.camera.get_exposure_limits()[0])
-        self.entry_exposureTime.setMaximum(self.liveController.camera.get_exposure_limits()[1])
+        self.entry_exposureTime.setMinimum(self.camera.get_exposure_limits()[0])
+        self.entry_exposureTime.setMaximum(self.camera.get_exposure_limits()[1])
         self.entry_exposureTime.setSingleStep(1)
         self.entry_exposureTime.setSuffix(" ms")
         self.entry_exposureTime.setValue(0)
@@ -1599,13 +1478,13 @@ class LiveControlWidget(QFrame):
         # Not all cameras support analog gain, so attempt to get the gain
         # to check this
         try:
-            gain_range = self.liveController.camera.get_gain_range()
+            gain_range = self.camera.get_gain_range()
             self.entry_analogGain.setMinimum(gain_range.min_gain)
             self.entry_analogGain.setMaximum(gain_range.max_gain)
             self.entry_analogGain.setSingleStep(gain_range.gain_step)
             self.entry_analogGain.setValue(gain_range.min_gain)
             self.entry_analogGain.setSizePolicy(sizePolicy)
-            self.liveController.camera.set_analog_gain(gain_range.min_gain)
+            self.camera.set_analog_gain(gain_range.min_gain)
         except NotImplementedError:
             self._log.info("Analog gain not supported,  disabling it in live control widget.")
             self.entry_analogGain.setValue(0)
@@ -2366,7 +2245,7 @@ class FilterControllerWidget(QFrame):
     def __init__(self, filterController, liveController, main=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.filterController = filterController
-        self.liveController = liveController
+        self.liveController: LiveController = liveController
         self.add_components()
         self.setFrameStyle(QFrame.Panel | QFrame.Raised)
 
@@ -2431,13 +2310,209 @@ class StatsDisplayWidget(QFrame):
             row += 1
 
 
+class WellSelectionWidget(QTableWidget):
+    signal_wellSelected = Signal(bool)
+    signal_wellSelectedPos = Signal(float, float)
+
+    def __init__(self, format_, wellplateFormatWidget, *args, **kwargs):
+        super(WellSelectionWidget, self).__init__(*args, **kwargs)
+        self.wellplateFormatWidget = wellplateFormatWidget
+        self.cellDoubleClicked.connect(self.onDoubleClick)
+        self.itemSelectionChanged.connect(self.onSelectionChanged)
+        self.fixed_height = 400
+        self.setFormat(format_)
+
+    def setFormat(self, format_):
+        self.format = format_
+        settings = self.wellplateFormatWidget.getWellplateSettings(self.format)
+        self.rows = settings["rows"]
+        self.columns = settings["cols"]
+        self.spacing_mm = settings["well_spacing_mm"]
+        self.number_of_skip = settings["number_of_skip"]
+        self.a1_x_mm = settings["a1_x_mm"]
+        self.a1_y_mm = settings["a1_y_mm"]
+        self.a1_x_pixel = settings["a1_x_pixel"]
+        self.a1_y_pixel = settings["a1_y_pixel"]
+        self.well_size_mm = settings["well_size_mm"]
+
+        self.setRowCount(self.rows)
+        self.setColumnCount(self.columns)
+        self.initUI()
+        self.setData()
+
+    def initUI(self):
+        # Disable editing, scrollbars, and other interactions
+        self.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.verticalScrollBar().setDisabled(True)
+        self.horizontalScrollBar().setDisabled(True)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setTabKeyNavigation(False)
+        self.setDragEnabled(False)
+        self.setAcceptDrops(False)
+        self.setDragDropOverwriteMode(False)
+        self.setMouseTracking(False)
+
+        if self.format == "1536 well plate":
+            font = QFont()
+            font.setPointSize(6)  # You can adjust this value as needed
+        else:
+            font = QFont()
+        self.horizontalHeader().setFont(font)
+        self.verticalHeader().setFont(font)
+
+        self.setLayout()
+
+    def setLayout(self):
+        # Calculate available space and cell size
+        header_height = self.horizontalHeader().height()
+        available_height = self.fixed_height - header_height  # Fixed height of 408 pixels
+
+        # Calculate cell size based on the minimum of available height and width
+        cell_size = available_height // self.rowCount()
+
+        self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.verticalHeader().setDefaultSectionSize(cell_size)
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.horizontalHeader().setDefaultSectionSize(cell_size)
+
+        # Ensure sections do not resize
+        self.verticalHeader().setMinimumSectionSize(cell_size)
+        self.verticalHeader().setMaximumSectionSize(cell_size)
+        self.horizontalHeader().setMinimumSectionSize(cell_size)
+        self.horizontalHeader().setMaximumSectionSize(cell_size)
+
+        row_header_width = self.verticalHeader().width()
+
+        # Calculate total width and height
+        total_height = (self.rowCount() * cell_size) + header_height
+        total_width = (self.columnCount() * cell_size) + row_header_width
+
+        # Set the widget's fixed size
+        self.setFixedHeight(total_height)
+        self.setFixedWidth(total_width)
+
+        # Force the widget to update its layout
+        self.updateGeometry()
+        self.viewport().update()
+
+    def onWellplateChanged(self):
+        self.setFormat(self.wellplateFormatWidget.wellplate_format)
+
+    def setData(self):
+        for i in range(self.rowCount()):
+            for j in range(self.columnCount()):
+                item = self.item(i, j)
+                if not item:  # Create a new item if none exists
+                    item = QTableWidgetItem()
+                    self.setItem(i, j, item)
+                # Reset to selectable by default
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+
+        if self.number_of_skip > 0 and self.format != 0:
+            for i in range(self.number_of_skip):
+                for j in range(self.columns):  # Apply to rows
+                    self.item(i, j).setFlags(self.item(i, j).flags() & ~Qt.ItemIsSelectable)
+                    self.item(self.rows - 1 - i, j).setFlags(
+                        self.item(self.rows - 1 - i, j).flags() & ~Qt.ItemIsSelectable
+                    )
+                for k in range(self.rows):  # Apply to columns
+                    self.item(k, i).setFlags(self.item(k, i).flags() & ~Qt.ItemIsSelectable)
+                    self.item(k, self.columns - 1 - i).setFlags(
+                        self.item(k, self.columns - 1 - i).flags() & ~Qt.ItemIsSelectable
+                    )
+
+        # Update row headers
+        row_headers = []
+        for i in range(self.rows):
+            if i < 26:
+                label = chr(ord("A") + i)
+            else:
+                first_letter = chr(ord("A") + (i // 26) - 1)
+                second_letter = chr(ord("A") + (i % 26))
+                label = first_letter + second_letter
+            row_headers.append(label)
+        self.setVerticalHeaderLabels(row_headers)
+
+        # Adjust vertical header width after setting labels
+        self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+
+    def onDoubleClick(self, row, col):
+        print("double click well", row, col)
+        if (row >= 0 + self.number_of_skip and row <= self.rows - 1 - self.number_of_skip) and (
+            col >= 0 + self.number_of_skip and col <= self.columns - 1 - self.number_of_skip
+        ):
+            x_mm = col * self.spacing_mm + self.a1_x_mm + WELLPLATE_OFFSET_X_mm
+            y_mm = row * self.spacing_mm + self.a1_y_mm + WELLPLATE_OFFSET_Y_mm
+            self.signal_wellSelectedPos.emit(x_mm, y_mm)
+            print("well location:", (x_mm, y_mm))
+            self.signal_wellSelected.emit(True)
+        else:
+            self.signal_wellSelected.emit(False)
+
+    def onSingleClick(self, row, col):
+        print("single click well", row, col)
+        if (row >= 0 + self.number_of_skip and row <= self.rows - 1 - self.number_of_skip) and (
+            col >= 0 + self.number_of_skip and col <= self.columns - 1 - self.number_of_skip
+        ):
+            self.signal_wellSelected.emit(True)
+        else:
+            self.signal_wellSelected.emit(False)
+
+    def onSelectionChanged(self):
+        # Check if there are any selected indexes before proceeding
+        if self.format != "glass slide":
+            has_selection = bool(self.selectedIndexes())
+            self.signal_wellSelected.emit(has_selection)
+
+    def get_selected_cells(self):
+        list_of_selected_cells = []
+        print("getting selected cells...")
+        if self.format == "glass slide":
+            return list_of_selected_cells
+        for index in self.selectedIndexes():
+            row, col = index.row(), index.column()
+            # Check if the cell is within the allowed bounds
+            if (row >= 0 + self.number_of_skip and row <= self.rows - 1 - self.number_of_skip) and (
+                col >= 0 + self.number_of_skip and col <= self.columns - 1 - self.number_of_skip
+            ):
+                list_of_selected_cells.append((row, col))
+        if list_of_selected_cells:
+            print("cells:", list_of_selected_cells)
+        else:
+            print("no cells")
+        return list_of_selected_cells
+
+    def resizeEvent(self, event):
+        self.initUI()
+        super().resizeEvent(event)
+
+    def wheelEvent(self, event):
+        # Ignore wheel events to prevent scrolling
+        event.ignore()
+
+    def scrollTo(self, index, hint=QAbstractItemView.EnsureVisible):
+        pass
+
+    def set_white_boundaries_style(self):
+        style = """
+        QTableWidget {
+            gridline-color: white;
+            border: 1px solid white;
+        }
+        QHeaderView::section {
+            color: white;
+        }
+        """
+        self.setStyleSheet(style)
+
+
 class FlexibleMultiPointWidget(QFrame):
 
     signal_acquisition_started = Signal(bool)  # true = started, false = finished
     signal_acquisition_channels = Signal(list)  # list channels
     signal_acquisition_shape = Signal(int, float)  # Nz, dz
-    signal_stitcher_z_levels = Signal(int)  # live Nz
-    signal_stitcher_widget = Signal(bool)  # signal start stitcher
 
     def __init__(
         self,
@@ -2473,7 +2548,6 @@ class FlexibleMultiPointWidget(QFrame):
         self.setFrameStyle(QFrame.Panel | QFrame.Raised)
         self.is_current_acquisition_widget = False
         self.acquisition_in_place = False
-        self.parent = self.multipointController.parent
 
     def add_components(self):
         self.btn_setSavingDir = QPushButton("Browse")
@@ -2805,8 +2879,6 @@ class FlexibleMultiPointWidget(QFrame):
         if HAS_OBJECTIVE_PIEZO:
             grid_af.addWidget(self.checkbox_usePiezo)
         grid_af.addWidget(self.checkbox_set_z_range)
-        if ENABLE_STITCHER:
-            grid_af.addWidget(self.checkbox_stitchOutput)
 
         grid_config = QHBoxLayout()
         grid_config.addWidget(self.list_configurations)
@@ -2871,14 +2943,12 @@ class FlexibleMultiPointWidget(QFrame):
         self.entry_NX.valueChanged.connect(self.multipointController.set_NX)
         self.entry_NY.valueChanged.connect(self.multipointController.set_NY)
         self.entry_NZ.valueChanged.connect(self.multipointController.set_NZ)
-        self.entry_NZ.valueChanged.connect(self.signal_stitcher_z_levels.emit)
         self.entry_Nt.valueChanged.connect(self.multipointController.set_Nt)
         self.checkbox_genAFMap.toggled.connect(self.multipointController.set_gen_focus_map_flag)
         self.checkbox_useFocusMap.toggled.connect(self.focusMapWidget.setEnabled)
         self.checkbox_withAutofocus.toggled.connect(self.multipointController.set_af_flag)
         self.checkbox_withReflectionAutofocus.toggled.connect(self.multipointController.set_reflection_af_flag)
         self.checkbox_usePiezo.toggled.connect(self.multipointController.set_use_piezo)
-        self.checkbox_stitchOutput.toggled.connect(self.display_stitcher_widget)
         self.btn_setSavingDir.clicked.connect(self.set_saving_dir)
         self.btn_startAcquisition.clicked.connect(self.toggle_acquisition)
         self.multipointController.acquisition_finished.connect(self.acquisition_is_finished)
@@ -3082,8 +3152,9 @@ class FlexibleMultiPointWidget(QFrame):
             self.eta_timer.stop()
 
     def update_fov_positions(self):
-        if self.parent.recordTabWidget.currentWidget() != self:
+        if not self.isVisible():
             return
+
         if self.scanCoordinates.has_regions():
             self.scanCoordinates.clear_regions()
 
@@ -3130,9 +3201,6 @@ class FlexibleMultiPointWidget(QFrame):
     def emit_selected_channels(self):
         selected_channels = [item.text() for item in self.list_configurations.selectedItems()]
         self.signal_acquisition_channels.emit(selected_channels)
-
-    def display_stitcher_widget(self, checked):
-        self.signal_stitcher_widget.emit(checked)
 
     def toggle_acquisition(self, pressed):
         self._log.debug(f"FlexibleMultiPointWidget.toggle_acquisition, {pressed=}")
@@ -3195,6 +3263,7 @@ class FlexibleMultiPointWidget(QFrame):
             # @@@ to do: add a widgetManger to enable and disable widget
             # @@@ to do: emit signal to widgetManager to disable other widgets
             self.is_current_acquisition_widget = True  # keep track of what widget started the acquisition
+            self.btn_startAcquisition.setText("Stop\n Acquisition ")
             self.setEnabled_all(False)
 
             # emit signals
@@ -3358,20 +3427,6 @@ class FlexibleMultiPointWidget(QFrame):
             # Re-enable signals
             self.table_location_list.blockSignals(False)
             self.dropdown_location_list.blockSignals(False)
-
-    # def create_point_id(self):
-    #     self.scanCoordinates.get_selected_wells()
-    #     if len(self.scanCoordinates.region_centers.keys()) == 0:
-    #         print('Select a well first.')
-    #         return None
-
-    #     name = self.scanCoordinates.region_centers.keys()[0]
-    #     location_split_names = [int(x.split('-')[1]) for x in self.location_ids if x.split('-')[0] == name]
-    #     if len(location_split_names) > 0:
-    #         new_id = f'{name}-{np.max(location_split_names)+1}'
-    #     else:
-    #         new_id = f'{name}-0'
-    #     return new_id
 
     def next(self):
         index = self.dropdown_location_list.currentIndex()
@@ -3644,6 +3699,7 @@ class FlexibleMultiPointWidget(QFrame):
 
         self.signal_acquisition_started.emit(False)
         self.btn_startAcquisition.setChecked(False)
+        self.btn_startAcquisition.setText("Start\n Acquisition ")
         self.setEnabled_all(True)
         self.is_current_acquisition_widget = False
 
@@ -3685,8 +3741,6 @@ class WellplateMultiPointWidget(QFrame):
     signal_acquisition_started = Signal(bool)
     signal_acquisition_channels = Signal(list)
     signal_acquisition_shape = Signal(int, float)  # acquisition Nz, dz
-    signal_stitcher_z_levels = Signal(int)  # live Nz
-    signal_stitcher_widget = Signal(bool)  # start stitching
     signal_manual_shape_mode = Signal(bool)  # enable manual shape layer on mosaic display
 
     def __init__(
@@ -3699,6 +3753,8 @@ class WellplateMultiPointWidget(QFrame):
         scanCoordinates,
         focusMapWidget=None,
         napariMosaicWidget=None,
+        tab_widget: Optional[QTabWidget] = None,
+        well_selection_widget: Optional[WellSelectionWidget] = None,
         *args,
         **kwargs,
     ):
@@ -3716,6 +3772,8 @@ class WellplateMultiPointWidget(QFrame):
         else:
             self.napariMosaicWidget = napariMosaicWidget
             self.performance_mode = False
+        self.tab_widget: Optional[QTabWidget] = tab_widget
+        self.well_selection_widget: Optional[WellSelectionWidget] = well_selection_widget
         self.base_path_is_set = False
         self.well_selected = False
         self.num_regions = 0
@@ -3723,7 +3781,6 @@ class WellplateMultiPointWidget(QFrame):
         self.manual_shape = None
         self.eta_seconds = 0
         self.is_current_acquisition_widget = False
-        self.parent = self.multipointController.parent
 
         # TODO (hl): these along with update_live_coordinates need to move out of this class
         self._last_update_time = 0
@@ -3974,8 +4031,6 @@ class WellplateMultiPointWidget(QFrame):
         if HAS_OBJECTIVE_PIEZO:
             options_layout.addWidget(self.checkbox_usePiezo)
         options_layout.addWidget(self.checkbox_set_z_range)
-        if ENABLE_STITCHER:
-            options_layout.addWidget(self.checkbox_stitchOutput)
 
         button_layout = QVBoxLayout()
         button_layout.addWidget(self.btn_snap_images)
@@ -4023,7 +4078,6 @@ class WellplateMultiPointWidget(QFrame):
         self.checkbox_useFocusMap.toggled.connect(self.focusMapWidget.setEnabled)
         self.checkbox_useFocusMap.toggled.connect(self.multipointController.set_manual_focus_map_flag)
         self.checkbox_usePiezo.toggled.connect(self.multipointController.set_use_piezo)
-        self.checkbox_stitchOutput.toggled.connect(self.display_stitcher_widget)
         self.list_configurations.itemSelectionChanged.connect(self.emit_selected_channels)
         self.multipointController.acquisition_finished.connect(self.acquisition_is_finished)
         self.multipointController.signal_acquisition_progress.connect(self.update_acquisition_progress)
@@ -4032,8 +4086,6 @@ class WellplateMultiPointWidget(QFrame):
         self.eta_timer.timeout.connect(self.update_eta_display)
         if not self.performance_mode:
             self.napariMosaicWidget.signal_layers_initialized.connect(self.enable_manual_ROI)
-        self.entry_NZ.valueChanged.connect(self.signal_stitcher_z_levels.emit)
-        # self.combobox_z_stack.currentIndexChanged.connect(self.signal_z_stacking.emit)
 
         # Connect save/clear coordinates button
         self.btn_save_scan_coordinates.clicked.connect(self.on_save_or_clear_coordinates_clicked)
@@ -4193,12 +4245,7 @@ class WellplateMultiPointWidget(QFrame):
     def get_effective_well_size(self):
         well_size = self.scanCoordinates.well_size_mm
         if self.combobox_shape.currentText() == "Circle":
-            pixel_size_um = (
-                self.objectiveStore.get_pixel_size_factor() * self.navigationViewer.camera_sensor_pixel_size_um
-            )
-            # TODO: In the future software cropping size may be changed when program is running,
-            # so we may want to use the crop_width from the camera object here.
-            fov_size_mm = (pixel_size_um / 1000) * CAMERA_CONFIG.CROP_WIDTH_UNBINNED
+            fov_size_mm = self.navigationViewer.camera.get_fov_size_mm() * self.objectiveStore.get_pixel_size_factor()
             return well_size + fov_size_mm * (1 + math.sqrt(2))
         return well_size
 
@@ -4212,7 +4259,7 @@ class WellplateMultiPointWidget(QFrame):
             self.update_coordinates()
 
     def update_manual_shape(self, shapes_data_mm):
-        if self.parent.recordTabWidget.currentWidget() != self:
+        if self.tab_widget and self.tab_widget.currentWidget() != self:
             return
 
         if shapes_data_mm and len(shapes_data_mm) > 0:
@@ -4297,7 +4344,7 @@ class WellplateMultiPointWidget(QFrame):
         self.entry_maxZ.blockSignals(False)
 
     def update_coordinates(self):
-        if hasattr(self.parent, "recordTabWidget") and self.parent.recordTabWidget.currentWidget() != self:
+        if self.tab_widget and self.tab_widget.currentWidget() != self:
             return
         scan_size_mm = self.entry_scan_size.value()
         overlap_percent = self.entry_overlap.value()
@@ -4315,7 +4362,7 @@ class WellplateMultiPointWidget(QFrame):
             self.scanCoordinates.set_well_coordinates(scan_size_mm, overlap_percent, shape)
 
     def update_well_coordinates(self, selected):
-        if self.parent.recordTabWidget.currentWidget() != self:
+        if self.tab_widget and self.tab_widget.currentWidget() != self:
             return
         if selected:
             scan_size_mm = self.entry_scan_size.value()
@@ -4326,7 +4373,7 @@ class WellplateMultiPointWidget(QFrame):
             self.scanCoordinates.clear_regions()
 
     def update_live_coordinates(self, pos: squid.abc.Pos):
-        if hasattr(self.parent, "recordTabWidget") and self.parent.recordTabWidget.currentWidget() != self:
+        if self.tab_widget and self.tab_widget.currentWidget() != self:
             return
         # Don't update scan coordinates if we're navigating focus points. A temporary fix for focus map with glass slide.
         # This disables updating scanning grid when focus map is checked
@@ -4427,6 +4474,7 @@ class WellplateMultiPointWidget(QFrame):
 
             self.setEnabled_all(False)
             self.is_current_acquisition_widget = True
+            self.btn_startAcquisition.setText("Stop\n Acquisition ")
 
             # Emit signals
             self.signal_acquisition_started.emit(True)
@@ -4450,6 +4498,7 @@ class WellplateMultiPointWidget(QFrame):
         self.signal_acquisition_started.emit(False)
         self.is_current_acquisition_widget = False
         self.btn_startAcquisition.setChecked(False)
+        self.btn_startAcquisition.setText("Start\n Acquisition ")
         if self.focusMapWidget is not None and self.focusMapWidget.focus_points:
             self.focusMapWidget.disable_updating_focus_points_on_signal()
         self.reset_coordinates()
@@ -4522,9 +4571,6 @@ class WellplateMultiPointWidget(QFrame):
         selected_channels = [item.text() for item in self.list_configurations.selectedItems()]
         self.signal_acquisition_channels.emit(selected_channels)
 
-    def display_stitcher_widget(self, checked):
-        self.signal_stitcher_widget.emit(checked)
-
     def toggle_coordinate_controls(self, has_coordinates: bool):
         """Toggle button text and control states based on whether coordinates are loaded"""
         if has_coordinates:
@@ -4535,7 +4581,7 @@ class WellplateMultiPointWidget(QFrame):
             self.entry_well_coverage.setEnabled(False)
             self.entry_overlap.setEnabled(False)
             # Disable well selector
-            self.parent.wellSelectionWidget.setEnabled(False)
+            self.well_selection_widget.setEnabled(False)
         else:
             self.btn_save_scan_coordinates.setText("Save Coordinates")
             # Re-enable scan controls when coordinates are cleared
@@ -4547,7 +4593,7 @@ class WellplateMultiPointWidget(QFrame):
                 self.entry_well_coverage.setEnabled(True)
             self.entry_overlap.setEnabled(True)
             # Re-enable well selector
-            self.parent.wellSelectionWidget.setEnabled(True)
+            self.well_selection_widget.setEnabled(True)
 
         self.has_loaded_coordinates = has_coordinates
 
@@ -4619,18 +4665,19 @@ class WellplateMultiPointWidget(QFrame):
     def save_coordinates(self):
         """Save scan coordinates to a CSV file.
 
-        Opens a file dialog for the user to choose save location and filename.
-        Coordinates are saved in CSV format with headers.
+        Opens a file dialog for the user to specify a folder name and location.
+        Coordinates are saved in CSV format with headers for each objective.
         """
-        # Open file dialog for user to select save location and filename
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Scan Coordinates", "", "CSV Files (*.csv);;All Files (*)"  # Default directory
+        # Open file dialog for user to specify folder name and location
+        folder_path, _ = QFileDialog.getSaveFileName(
+            self, "Create Folder for Scan Coordinates", "", "Folder"  # Default directory
         )
 
-        if file_path:
-            base_path, extension = os.path.splitext(file_path)
-            if not extension:
-                extension = ".csv"
+        if folder_path:
+            # Create the folder if it doesn't exist
+            os.makedirs(folder_path, exist_ok=True)
+
+            folder_name = os.path.basename(folder_path)
 
             current_objective = self.objectiveStore.current_objective
 
@@ -4655,17 +4702,17 @@ class WellplateMultiPointWidget(QFrame):
                     else:
                         self.objectiveStore.set_current_objective(objective_name)
                         self.update_coordinates()
-                        obj_file_path = f"{base_path}_{objective_name}{extension}"
+                        obj_file_path = os.path.join(folder_path, f"{folder_name}_{objective_name}.csv")
                         _helper_save_coordinates(self, obj_file_path)
 
                 self.objectiveStore.set_current_objective(current_objective)
                 self.update_coordinates()
-                obj_file_path = f"{base_path}_{current_objective}{extension}"
+                obj_file_path = os.path.join(folder_path, f"{folder_name}_{current_objective}.csv")
                 _helper_save_coordinates(self, obj_file_path)
 
             except Exception as e:
                 self._log.error(f"Failed to save coordinates: {str(e)}")
-                QMessageBox.warning(self, "Save Error", f"Failed to save coordinates to {file_path}\nError: {str(e)}")
+                QMessageBox.warning(self, "Save Error", f"Failed to save coordinates to {folder_path}\nError: {str(e)}")
 
 
 class MultiPointWithFluidicsWidget(QFrame):
@@ -4706,7 +4753,6 @@ class MultiPointWithFluidicsWidget(QFrame):
         self.eta_seconds = 0
         self.nRound = 0
         self.is_current_acquisition_widget = False
-        self.parent = self.multipointController.parent
 
         self.add_components()
         self.setFrameStyle(QFrame.Panel | QFrame.Raised)
@@ -4895,6 +4941,7 @@ class MultiPointWithFluidicsWidget(QFrame):
 
             self.setEnabled_all(False)
             self.is_current_acquisition_widget = True
+            self.btn_startAcquisition.setText("Stop\n Acquisition ")
 
             self.multipointController.set_deltaZ(self.entry_deltaZ.value())
             self.multipointController.set_NZ(self.entry_NZ.value())
@@ -4965,6 +5012,7 @@ class MultiPointWithFluidicsWidget(QFrame):
         self.signal_acquisition_started.emit(False)
         self.is_current_acquisition_widget = False
         self.btn_startAcquisition.setChecked(False)
+        self.btn_startAcquisition.setText("Start\n Acquisition ")
         self.setEnabled_all(True)
 
     def setEnabled_all(self, enabled):
@@ -5571,6 +5619,7 @@ class FocusMapWidget(QFrame):
     def __init__(self, stage: AbstractStage, navigationViewer, scanCoordinates, focusMap):
         super().__init__()
         self.setFrameStyle(QFrame.Panel | QFrame.Raised)
+        self._allow_updating_focus_points_on_signal = True
 
         # Store controllers
         self.stage = stage
@@ -5677,9 +5726,6 @@ class FocusMapWidget(QFrame):
 
         # Connect fitting method change
         self.fit_method_combo.currentTextChanged.connect(self._match_by_region_box)
-
-        # Connect to scan coordinates changes
-        self.scanCoordinates.signal_scan_coordinates_updated.connect(self.on_regions_updated)
 
     def update_point_list(self):
         """Update point selection combo showing grid coordinates for points"""
@@ -6022,14 +6068,16 @@ class FocusMapWidget(QFrame):
             QMessageBox.critical(self, "Import Error", f"Failed to import focus points: {str(e)}")
 
     def on_regions_updated(self):
+        if not self._allow_updating_focus_points_on_signal:
+            return
         if self.scanCoordinates.has_regions():
             self.generate_grid(self.rows_spin.value(), self.cols_spin.value())
 
     def disable_updating_focus_points_on_signal(self):
-        self.scanCoordinates.signal_scan_coordinates_updated.disconnect(self.on_regions_updated)
+        self._allow_updating_focus_points_on_signal = False
 
     def enable_updating_focus_points_on_signal(self):
-        self.scanCoordinates.signal_scan_coordinates_updated.connect(self.on_regions_updated)
+        self._allow_updating_focus_points_on_signal = True
 
     def setEnabled(self, enabled):
         self.enabled = enabled
@@ -6041,232 +6089,6 @@ class FocusMapWidget(QFrame):
         """Handle resize events to maintain button sizing"""
         super().resizeEvent(event)
         self.update_z_btn.setFixedWidth(self.edit_point_btn.width())
-
-
-class StitcherWidget(QFrame):
-
-    def __init__(self, objectiveStore, channelConfigurationManager, contrastManager, *args, **kwargs):
-        super(StitcherWidget, self).__init__(*args, **kwargs)
-        self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
-        self.contrastManager = contrastManager
-        self.stitcherThread = None
-        self.output_path = ""
-        self.initUI()
-
-    def initUI(self):
-        self.setFrameStyle(QFrame.Panel | QFrame.Raised)  # Set frame style
-        self.layout = QVBoxLayout(self)
-        self.rowLayout1 = QHBoxLayout()
-        self.rowLayout2 = QHBoxLayout()
-
-        # Use registration checkbox
-        self.useRegistrationCheck = QCheckBox("Registration")
-        self.useRegistrationCheck.toggled.connect(self.onRegistrationCheck)
-        self.rowLayout1.addWidget(self.useRegistrationCheck)
-        self.rowLayout1.addStretch()
-
-        # Apply flatfield correction checkbox
-        self.applyFlatfieldCheck = QCheckBox("Flatfield Correction")
-        self.rowLayout1.addWidget(self.applyFlatfieldCheck)
-        self.rowLayout1.addStretch()
-
-        # Output format dropdown
-        self.outputFormatLabel = QLabel("Output Format", self)
-        self.outputFormatCombo = QComboBox(self)
-        self.outputFormatCombo.addItem("OME-ZARR")
-        self.outputFormatCombo.addItem("OME-TIFF")
-        self.rowLayout1.addWidget(self.outputFormatLabel)
-        self.rowLayout1.addWidget(self.outputFormatCombo)
-
-        # Select registration channel
-        self.registrationChannelLabel = QLabel("Registration Configuration", self)
-        self.registrationChannelLabel.setVisible(False)
-        self.rowLayout2.addWidget(self.registrationChannelLabel)
-        self.registrationChannelCombo = QComboBox(self)
-        self.registrationChannelLabel.setVisible(False)
-        self.registrationChannelCombo.setVisible(False)
-        self.registrationChannelCombo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.rowLayout2.addWidget(self.registrationChannelCombo)
-
-        # Select registration cz-level
-        self.registrationZLabel = QLabel(" Z-Level", self)
-        self.registrationZLabel.setVisible(False)
-        self.rowLayout2.addWidget(self.registrationZLabel)
-        self.registrationZCombo = QSpinBox(self)
-        self.registrationZCombo.setSingleStep(1)
-        self.registrationZCombo.setMinimum(0)
-        self.registrationZCombo.setMaximum(0)
-        self.registrationZCombo.setValue(0)
-        self.registrationZLabel.setVisible(False)
-        self.registrationZCombo.setVisible(False)
-        self.rowLayout2.addWidget(self.registrationZCombo)
-
-        self.layout.addLayout(self.rowLayout1)
-        self.layout.addLayout(self.rowLayout2)
-        self.setLayout(self.layout)
-
-        # Button to view output in Napari
-        self.viewOutputButton = QPushButton("View Output in Napari")
-        self.viewOutputButton.setEnabled(False)  # Initially disabled
-        self.viewOutputButton.setVisible(False)
-        self.viewOutputButton.clicked.connect(self.viewOutputNapari)
-        self.layout.addWidget(self.viewOutputButton)
-
-        # Progress bar
-        progress_row = QHBoxLayout()
-
-        # Status label
-        self.statusLabel = QLabel("Status: Image Acquisition")
-        progress_row.addWidget(self.statusLabel)
-        self.statusLabel.setVisible(False)
-
-        self.progressBar = QProgressBar()
-        progress_row.addWidget(self.progressBar)
-        self.progressBar.setVisible(False)  # Initially hidden
-        self.layout.addLayout(progress_row)
-
-    def setStitcherThread(self, thread):
-        self.stitcherThread = thread
-
-    def onRegistrationCheck(self, checked):
-        self.registrationChannelLabel.setVisible(checked)
-        self.registrationChannelCombo.setVisible(checked)
-        self.registrationZLabel.setVisible(checked)
-        self.registrationZCombo.setVisible(checked)
-
-    def updateRegistrationChannels(self, selected_channels):
-        self.registrationChannelCombo.clear()  # Clear existing items
-        self.registrationChannelCombo.addItems(selected_channels)
-
-    def updateRegistrationZLevels(self, Nz):
-        self.registrationZCombo.setMinimum(0)
-        self.registrationZCombo.setMaximum(Nz - 1)
-
-    def gettingFlatfields(self):
-        self.statusLabel.setText("Status: Calculating Flatfields")
-        self.viewOutputButton.setVisible(False)
-        self.viewOutputButton.setStyleSheet("")
-        self.progressBar.setValue(0)
-        self.statusLabel.setVisible(True)
-        self.progressBar.setVisible(True)
-
-    def startingStitching(self):
-        self.statusLabel.setText("Status: Stitching Scans")
-        self.viewOutputButton.setVisible(False)
-        self.progressBar.setValue(0)
-        self.statusLabel.setVisible(True)
-        self.progressBar.setVisible(True)
-
-    def updateProgressBar(self, value, total):
-        self.progressBar.setMaximum(total)
-        self.progressBar.setValue(value)
-        self.progressBar.setVisible(True)
-
-    def startingSaving(self, stitch_complete=False):
-        if stitch_complete:
-            self.statusLabel.setText("Status: Saving Stitched Acquisition")
-        else:
-            self.statusLabel.setText("Status: Saving Stitched Region")
-        self.statusLabel.setVisible(True)
-        self.progressBar.setRange(0, 0)  # indeterminate mode.
-        self.progressBar.setVisible(True)
-
-    def finishedSaving(self, output_path, dtype):
-        if self.stitcherThread is not None:
-            self.stitcherThread.quit()
-            self.stitcherThread.deleteLater()
-        self.statusLabel.setVisible(False)
-        self.progressBar.setVisible(False)
-        self.viewOutputButton.setVisible(True)
-        self.viewOutputButton.setStyleSheet("background-color: #C2C2FF")
-        self.viewOutputButton.setEnabled(True)
-        try:
-            self.viewOutputButton.clicked.disconnect()
-        except TypeError:
-            pass
-        self.viewOutputButton.clicked.connect(self.viewOutputNapari)
-
-        self.output_path = output_path
-
-    def extractWavelength(self, name):
-        # TODO: Use the 'color' attribute of the ChannelMode object
-        # Split the string and find the wavelength number immediately after "Fluorescence"
-        parts = name.split()
-        if "Fluorescence" in parts:
-            index = parts.index("Fluorescence") + 1
-            if index < len(parts):
-                return parts[index].split()[0]  # Assuming '488 nm Ex' and taking '488'
-        for color in ["R", "G", "B"]:
-            if color in parts or "full_" + color in parts:
-                return color
-        return None
-
-    def generateColormap(self, channel_info):
-        """Convert a HEX value to a normalized RGB tuple."""
-        c0 = (0, 0, 0)
-        c1 = (
-            ((channel_info["hex"] >> 16) & 0xFF) / 255,  # Normalize the Red component
-            ((channel_info["hex"] >> 8) & 0xFF) / 255,  # Normalize the Green component
-            (channel_info["hex"] & 0xFF) / 255,
-        )  # Normalize the Blue component
-        return Colormap(colors=[c0, c1], controls=[0, 1], name=channel_info["name"])
-
-    def updateContrastLimits(self, channel, min_val, max_val):
-        self.contrastManager.update_limits(channel, min_val, max_val)
-
-    def viewOutputNapari(self):
-        try:
-            napari_viewer = napari.Viewer()
-            if ".ome.zarr" in self.output_path:
-                napari_viewer.open(self.output_path, plugin="napari-ome-zarr")
-            else:
-                napari_viewer.open(self.output_path)
-
-            for layer in napari_viewer.layers:
-                layer_name = layer.name.replace("_", " ").replace("full ", "full_")
-                channel_info = CHANNEL_COLORS_MAP.get(
-                    self.extractWavelength(layer_name), {"hex": 0xFFFFFF, "name": "gray"}
-                )
-
-                if channel_info["name"] in AVAILABLE_COLORMAPS:
-                    layer.colormap = AVAILABLE_COLORMAPS[channel_info["name"]]
-                else:
-                    layer.colormap = self.generateColormap(channel_info)
-
-                min_val, max_val = self.contrastManager.get_limits(layer_name)
-                layer.contrast_limits = (min_val, max_val)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error Opening in Napari", str(e))
-            print(f"An error occurred while opening output in Napari: {e}")
-
-    def resetUI(self):
-        self.output_path = ""
-
-        # Reset UI components to their default states
-        self.applyFlatfieldCheck.setChecked(False)
-        self.outputFormatCombo.setCurrentIndex(0)  # Assuming the first index is the default
-        self.useRegistrationCheck.setChecked(False)
-        self.registrationChannelCombo.clear()  # Clear existing items
-        self.registrationChannelLabel.setVisible(False)
-        self.registrationChannelCombo.setVisible(False)
-
-        # Reset the visibility and state of buttons and labels
-        self.viewOutputButton.setEnabled(False)
-        self.viewOutputButton.setVisible(False)
-        self.progressBar.setValue(0)
-        self.progressBar.setVisible(False)
-        self.statusLabel.setText("Status: Image Acquisition")
-        self.statusLabel.setVisible(False)
-
-    def closeEvent(self, event):
-        if self.stitcherThread is not None:
-            self.stitcherThread.quit()
-            self.stitcherThread.wait()
-            self.stitcherThread.deleteLater()
-            self.stitcherThread = None
-        super().closeEvent(event)
 
 
 class NapariLiveWidget(QWidget):
@@ -6293,7 +6115,7 @@ class NapariLiveWidget(QWidget):
         super().__init__(parent)
         self._log = squid.logging.get_logger(self.__class__.__name__)
         self.streamHandler = streamHandler
-        self.liveController = liveController
+        self.liveController: LiveController = liveController
         self.stage = stage
         self.objectiveStore = objectiveStore
         self.channelConfigurationManager = channelConfigurationManager
@@ -6408,7 +6230,7 @@ class NapariLiveWidget(QWidget):
 
         # Exposure Time
         self.entry_exposureTime = QDoubleSpinBox()
-        self.entry_exposureTime.setRange(*self.liveController.camera.get_exposure_limits())
+        self.entry_exposureTime.setRange(*self.camera.get_exposure_limits())
         self.entry_exposureTime.setValue(self.live_configuration.exposure_time)
         self.entry_exposureTime.setSuffix(" ms")
         self.entry_exposureTime.valueChanged.connect(self.update_config_exposure_time)
@@ -6443,9 +6265,6 @@ class NapariLiveWidget(QWidget):
         for display_name, mode in trigger_modes:
             self.dropdown_triggerMode.addItem(display_name, mode)
         self.dropdown_triggerMode.currentIndexChanged.connect(self.on_trigger_mode_changed)
-        # self.dropdown_triggerMode = QComboBox()
-        # self.dropdown_triggerMode.addItems([TriggerMode.SOFTWARE, TriggerMode.HARDWARE, TriggerMode.CONTINUOUS])
-        # self.dropdown_triggerMode.currentTextChanged.connect(self.liveController.set_trigger_mode)
 
         # Trigger FPS
         self.entry_triggerFPS = QDoubleSpinBox()
@@ -6980,7 +6799,6 @@ class NapariMultiChannelWidget(QWidget):
             layer.refresh()
 
     def activate(self):
-        print("ACTIVATING NAPARI MULTICHANNEL WIDGET")
         self.viewer.window.activate()
 
 
@@ -7367,7 +7185,6 @@ class NapariMosaicDisplayWidget(QWidget):
         self.signal_clear_viewer.emit()
 
     def activate(self):
-        print("ACTIVATING NAPARI MOSAIC WIDGET")
         self.viewer.window.activate()
 
 
@@ -7594,54 +7411,6 @@ class TrackingControllerWidget(QFrame):
         pixel_size_xy = pixel_size_um / (magnification / (objective_tube_lens_mm / tube_lens_mm))
         self.trackingController.update_pixel_size(pixel_size_xy)
         print(f"pixel size is {pixel_size_xy:.2f} μm")
-
-    """
-        # connections
-        self.checkbox_withAutofocus.stateChanged.connect(self.trackingController.set_af_flag)
-        self.btn_setSavingDir.clicked.connect(self.set_saving_dir)
-        self.btn_startAcquisition.clicked.connect(self.toggle_acquisition)
-        self.trackingController.trackingStopped.connect(self.acquisition_is_finished)
-
-    def set_saving_dir(self):
-        dialog = QFileDialog()
-        save_dir_base = dialog.getExistingDirectory(None, "Select Folder")
-        self.plateReadingController.set_base_path(save_dir_base)
-        self.lineEdit_savingDir.setText(save_dir_base)
-        self.base_path_is_set = True
-
-    def toggle_acquisition(self,pressed):
-        if self.base_path_is_set == False:
-            self.btn_startAcquisition.setChecked(False)
-            msg = QMessageBox()
-            msg.setText("Please choose base saving directory first")
-            msg.exec_()
-            return
-        if pressed:
-            # @@@ to do: add a widgetManger to enable and disable widget
-            # @@@ to do: emit signal to widgetManager to disable other widgets
-            self.setEnabled_all(False)
-            self.trackingController.start_new_experiment(self.lineEdit_experimentID.text())
-            self.trackingController.set_selected_configurations((item.text() for item in self.list_configurations.selectedItems()))
-            self.trackingController.set_selected_columns(list(map(int,[item.text() for item in self.list_columns.selectedItems()])))
-            self.trackingController.run_acquisition()
-        else:
-            self.trackingController.stop_acquisition() # to implement
-            pass
-
-    def acquisition_is_finished(self):
-        self.btn_startAcquisition.setChecked(False)
-        self.setEnabled_all(True)
-
-    def setEnabled_all(self,enabled,exclude_btn_startAcquisition=False):
-        self.btn_setSavingDir.setEnabled(enabled)
-        self.lineEdit_savingDir.setEnabled(enabled)
-        self.lineEdit_experimentID.setEnabled(enabled)
-        self.list_columns.setEnabled(enabled)
-        self.list_configurations.setEnabled(enabled)
-        self.checkbox_withAutofocus.setEnabled(enabled)
-        if exclude_btn_startAcquisition is not True:
-            self.btn_startAcquisition.setEnabled(enabled)
-    """
 
 
 class PlateReaderAcquisitionWidget(QFrame):
@@ -8429,7 +8198,7 @@ class WellplateCalibration(QDialog):
         self.stage = stage
         self.navigationViewer = navigationViewer
         self.streamHandler = streamHandler
-        self.liveController = liveController
+        self.liveController: LiveController = liveController
         self.was_live = self.liveController.is_live
         self.corners = [None, None, None]
         self.show_virtual_joystick = True  # FLAG
@@ -8621,20 +8390,25 @@ class WellplateCalibration(QDialog):
         self.stage.move_y(dy)
 
     def toggleClickToMove(self, state):
-        # TODO(imo): I broke click to move with the navigation controller rip out
-        # if state == Qt.Checked:
-        #     self.navigationController.set_flag_click_to_move(True)
-        #     self.live_viewer.signal_calibration_viewer_click.connect(self.viewerClicked)
-        # else:
-        #     self.live_viewer.signal_calibration_viewer_click.disconnect(self.viewerClicked)
-        #     self.navigationController.set_flag_click_to_move(False)
-        pass
+        if state == Qt.Checked:
+            self.live_viewer.signal_calibration_viewer_click.connect(self.viewerClicked)
+        else:
+            self.live_viewer.signal_calibration_viewer_click.disconnect(self.viewerClicked)
 
     def viewerClicked(self, x, y, width, height):
-        # TODO(imo): I broke click to move with the navigation controller rip out
-        # if self.clickToMoveCheckbox.isChecked():
-        #     self.navigationController.move_from_click(x, y, width, height)
-        pass
+        pixel_size_um = (
+            self.navigationViewer.objectiveStore.get_pixel_size_factor()
+            * self.liveController.microscope.camera.get_pixel_size_binned_um()
+        )
+
+        pixel_sign_x = 1
+        pixel_sign_y = 1 if INVERTED_OBJECTIVE else -1
+
+        delta_x = pixel_sign_x * pixel_size_um * x / 1000.0
+        delta_y = pixel_sign_y * pixel_size_um * y / 1000.0
+
+        self.stage.move_x(delta_x)
+        self.stage.move_y(delta_y)
 
     def setCorner(self, index):
         if self.corners[index] is None:
@@ -8915,9 +8689,8 @@ class CalibrationLiveViewer(QWidget):
     signal_calibration_viewer_click = Signal(int, int, int, int)
     signal_mouse_moved = Signal(int, int)
 
-    def __init__(self, parent=None):
+    def __init__(self):
         super().__init__()
-        self.parent = parent
         self.initial_zoom_set = False
         self.initUI()
 
@@ -8929,6 +8702,9 @@ class CalibrationLiveViewer(QWidget):
         self.viewbox = self.view.addViewBox()
         self.viewbox.setAspectLocked(True)
         self.viewbox.invertY(True)
+
+        self.viewbox.setMouseEnabled(x=False, y=False)  # Disable panning
+        self.viewbox.setMenuEnabled(False)
 
         # Set appropriate panning limits based on the acquisition image or plate size
         xmax = int(CAMERA_CONFIG.CROP_WIDTH_UNBINNED)
@@ -8954,9 +8730,6 @@ class CalibrationLiveViewer(QWidget):
 
         # Set fixed size for the viewer
         self.setFixedSize(500, 500)
-
-        # Initialize with a blank image
-        self.display_image(np.zeros((xmax, ymax)))
 
     def setCrosshairPosition(self):
         center = self.viewbox.viewRect().center()
@@ -9113,208 +8886,6 @@ class Joystick(QWidget):
         self.current_x = dx / self.max_distance
         self.current_y = dy / self.max_distance
         self.update()
-
-
-class WellSelectionWidget(QTableWidget):
-
-    signal_wellSelected = Signal(bool)
-    signal_wellSelectedPos = Signal(float, float)
-
-    def __init__(self, format_, wellplateFormatWidget, *args, **kwargs):
-        super(WellSelectionWidget, self).__init__(*args, **kwargs)
-        self.wellplateFormatWidget = wellplateFormatWidget
-        self.cellDoubleClicked.connect(self.onDoubleClick)
-        self.itemSelectionChanged.connect(self.onSelectionChanged)
-        self.fixed_height = 400
-        self.setFormat(format_)
-
-    def setFormat(self, format_):
-        self.format = format_
-        settings = self.wellplateFormatWidget.getWellplateSettings(self.format)
-        self.rows = settings["rows"]
-        self.columns = settings["cols"]
-        self.spacing_mm = settings["well_spacing_mm"]
-        self.number_of_skip = settings["number_of_skip"]
-        self.a1_x_mm = settings["a1_x_mm"]
-        self.a1_y_mm = settings["a1_y_mm"]
-        self.a1_x_pixel = settings["a1_x_pixel"]
-        self.a1_y_pixel = settings["a1_y_pixel"]
-        self.well_size_mm = settings["well_size_mm"]
-
-        self.setRowCount(self.rows)
-        self.setColumnCount(self.columns)
-        self.initUI()
-        self.setData()
-
-    def initUI(self):
-        # Disable editing, scrollbars, and other interactions
-        self.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.verticalScrollBar().setDisabled(True)
-        self.horizontalScrollBar().setDisabled(True)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setTabKeyNavigation(False)
-        self.setDragEnabled(False)
-        self.setAcceptDrops(False)
-        self.setDragDropOverwriteMode(False)
-        self.setMouseTracking(False)
-
-        if self.format == "1536 well plate":
-            font = QFont()
-            font.setPointSize(6)  # You can adjust this value as needed
-        else:
-            font = QFont()
-        self.horizontalHeader().setFont(font)
-        self.verticalHeader().setFont(font)
-
-        self.setLayout()
-
-    def setLayout(self):
-        # Calculate available space and cell size
-        header_height = self.horizontalHeader().height()
-        available_height = self.fixed_height - header_height  # Fixed height of 408 pixels
-
-        # Calculate cell size based on the minimum of available height and width
-        cell_size = available_height // self.rowCount()
-
-        self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        self.verticalHeader().setDefaultSectionSize(cell_size)
-        self.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        self.horizontalHeader().setDefaultSectionSize(cell_size)
-
-        # Ensure sections do not resize
-        self.verticalHeader().setMinimumSectionSize(cell_size)
-        self.verticalHeader().setMaximumSectionSize(cell_size)
-        self.horizontalHeader().setMinimumSectionSize(cell_size)
-        self.horizontalHeader().setMaximumSectionSize(cell_size)
-
-        row_header_width = self.verticalHeader().width()
-
-        # Calculate total width and height
-        total_height = (self.rowCount() * cell_size) + header_height
-        total_width = (self.columnCount() * cell_size) + row_header_width
-
-        # Set the widget's fixed size
-        self.setFixedHeight(total_height)
-        self.setFixedWidth(total_width)
-
-        # Force the widget to update its layout
-        self.updateGeometry()
-        self.viewport().update()
-
-    def onWellplateChanged(self):
-        self.setFormat(self.wellplateFormatWidget.wellplate_format)
-
-    def setData(self):
-        for i in range(self.rowCount()):
-            for j in range(self.columnCount()):
-                item = self.item(i, j)
-                if not item:  # Create a new item if none exists
-                    item = QTableWidgetItem()
-                    self.setItem(i, j, item)
-                # Reset to selectable by default
-                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-
-        if self.number_of_skip > 0 and self.format != 0:
-            for i in range(self.number_of_skip):
-                for j in range(self.columns):  # Apply to rows
-                    self.item(i, j).setFlags(self.item(i, j).flags() & ~Qt.ItemIsSelectable)
-                    self.item(self.rows - 1 - i, j).setFlags(
-                        self.item(self.rows - 1 - i, j).flags() & ~Qt.ItemIsSelectable
-                    )
-                for k in range(self.rows):  # Apply to columns
-                    self.item(k, i).setFlags(self.item(k, i).flags() & ~Qt.ItemIsSelectable)
-                    self.item(k, self.columns - 1 - i).setFlags(
-                        self.item(k, self.columns - 1 - i).flags() & ~Qt.ItemIsSelectable
-                    )
-
-        # Update row headers
-        row_headers = []
-        for i in range(self.rows):
-            if i < 26:
-                label = chr(ord("A") + i)
-            else:
-                first_letter = chr(ord("A") + (i // 26) - 1)
-                second_letter = chr(ord("A") + (i % 26))
-                label = first_letter + second_letter
-            row_headers.append(label)
-        self.setVerticalHeaderLabels(row_headers)
-
-        # Adjust vertical header width after setting labels
-        self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-
-    def onDoubleClick(self, row, col):
-        print("double click well", row, col)
-        if (row >= 0 + self.number_of_skip and row <= self.rows - 1 - self.number_of_skip) and (
-            col >= 0 + self.number_of_skip and col <= self.columns - 1 - self.number_of_skip
-        ):
-            x_mm = col * self.spacing_mm + self.a1_x_mm + WELLPLATE_OFFSET_X_mm
-            y_mm = row * self.spacing_mm + self.a1_y_mm + WELLPLATE_OFFSET_Y_mm
-            self.signal_wellSelectedPos.emit(x_mm, y_mm)
-            print("well location:", (x_mm, y_mm))
-            self.signal_wellSelected.emit(True)
-        else:
-            self.signal_wellSelected.emit(False)
-
-    def onSingleClick(self, row, col):
-        print("single click well", row, col)
-        if (row >= 0 + self.number_of_skip and row <= self.rows - 1 - self.number_of_skip) and (
-            col >= 0 + self.number_of_skip and col <= self.columns - 1 - self.number_of_skip
-        ):
-            self.signal_wellSelected.emit(True)
-        else:
-            self.signal_wellSelected.emit(False)
-
-    def onSelectionChanged(self):
-        # Check if there are any selected indexes before proceeding
-        if self.format != "glass slide":
-            has_selection = bool(self.selectedIndexes())
-            self.signal_wellSelected.emit(has_selection)
-
-    def get_selected_cells(self):
-        list_of_selected_cells = []
-        print("getting selected cells...")
-        if self.format == "glass slide":
-            return list_of_selected_cells
-        for index in self.selectedIndexes():
-            row, col = index.row(), index.column()
-            # Check if the cell is within the allowed bounds
-            if (row >= 0 + self.number_of_skip and row <= self.rows - 1 - self.number_of_skip) and (
-                col >= 0 + self.number_of_skip and col <= self.columns - 1 - self.number_of_skip
-            ):
-                list_of_selected_cells.append((row, col))
-        if list_of_selected_cells:
-            print("cells:", list_of_selected_cells)
-        else:
-            print("no cells")
-        return list_of_selected_cells
-
-    def resizeEvent(self, event):
-        self.initUI()
-        super().resizeEvent(event)
-
-    def wheelEvent(self, event):
-        # Ignore wheel events to prevent scrolling
-        event.ignore()
-
-    def scrollTo(self, index, hint=QAbstractItemView.EnsureVisible):
-        pass
-
-    def set_white_boundaries_style(self):
-        style = """
-        QTableWidget {
-            gridline-color: white;
-            border: 1px solid white;
-        }
-        QHeaderView::section {
-            color: white;
-        }
-        """
-        # QTableWidget::item {
-        #     border: 1px solid white;
-        # }
-        self.setStyleSheet(style)
 
 
 class Well1536SelectionWidget(QWidget):
@@ -9744,7 +9315,24 @@ class SurfacePlotWidget(QWidget):
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
         self.canvas.mpl_connect("button_press_event", self.on_click)
 
-    def plot(self, x: np.array, y: np.array, z: np.array, region: np.array) -> None:
+        self.x = list()
+        self.y = list()
+        self.z = list()
+        self.regions = list()
+
+    def clear(self):
+        self.x.clear()
+        self.y.clear()
+        self.z.clear()
+        self.regions.clear()
+
+    def add_point(self, x: float, y: float, z: float, region: int):
+        self.x.append(x)
+        self.y.append(y)
+        self.z.append(z)
+        self.regions.append(region)
+
+    def plot(self) -> None:
         """
         Plot both surface and scatter points in 3D.
 
@@ -9754,32 +9342,31 @@ class SurfacePlotWidget(QWidget):
             z (np.array): Z coordinates (1D array)
         """
         try:
-            # Store the original coordinates
-            self.x = x
-            self.y = y
-            self.z = z
-
             # Clear previous plot
             self.ax.clear()
 
+            x = np.array(self.x).astype(float)
+            y = np.array(self.y).astype(float)
+            z = np.array(self.z).astype(float)
+            regions = np.array(self.regions)
+
             # plot surface by region
-            for r in np.unique(region):
+            for r in np.unique(regions):
                 try:
-                    mask = region == r
+                    mask = regions == r
                     num_points = np.sum(mask)
                     if num_points >= 4:
                         grid_x, grid_y = np.mgrid[min(x[mask]) : max(x[mask]) : 10j, min(y[mask]) : max(y[mask]) : 10j]
                         grid_z = griddata((x[mask], y[mask]), z[mask], (grid_x, grid_y), method="cubic")
                         self.ax.plot_surface(grid_x, grid_y, grid_z, cmap="viridis", edgecolor="none")
-                        # self.ax.plot_trisurf(x[mask], y[mask], z[mask], cmap='viridis', edgecolor='none')
                     else:
                         self._log.debug(f"Region {r} has only {num_points} point(s), skipping surface interpolation")
                 except Exception as e:
                     raise Exception(f"Cannot plot region {r}: {e}")
 
             # Create scatter plot using original coordinates
-            self.colors = ["r"] * len(self.x)
-            self.scatter = self.ax.scatter(self.x, self.y, self.z, c=self.colors, s=30)
+            self.colors = ["r"] * len(x)
+            self.scatter = self.ax.scatter(x, y, z, c=self.colors, s=30)
 
             # Set labels
             self.ax.set_xlabel("X (mm)")
@@ -9788,9 +9375,9 @@ class SurfacePlotWidget(QWidget):
             self.ax.set_title("Double-click a point to go to that position")
 
             # Force x and y to have same scale
-            max_range = max(np.ptp(self.x), np.ptp(self.y))
-            center_x = np.mean(self.x)
-            center_y = np.mean(self.y)
+            max_range = max(np.ptp(x), np.ptp(y))
+            center_x = np.mean(x)
+            center_y = np.mean(y)
 
             self.ax.set_xlim(center_x - max_range / 2, center_x + max_range / 2)
             self.ax.set_ylim(center_y - max_range / 2, center_y + max_range / 2)

@@ -68,6 +68,19 @@ class TriggerMode:
     HARDWARE = "Hardware Trigger"
     CONTINUOUS = "Continuous Acquisition"
 
+    @staticmethod
+    def convert_to_var(option: Union[str, "TriggerMode"]) -> "TriggerMode":
+        """
+        Attempts to convert the given string to a TriggerMode.
+        """
+        if isinstance(option, TriggerMode):
+            return option
+
+        for name, value in vars(TriggerMode).items():
+            if value == option or name == option.upper():
+                return getattr(TriggerMode, name)
+        raise ValueError(f"Invalid trigger mode: {option}")
+
 
 class Acquisition:
     NUMBER_OF_FOVS_PER_AF = 3
@@ -78,6 +91,7 @@ class Acquisition:
     DZ = 1.5
     NX = 1
     NY = 1
+    USE_MULTIPROCESSING = True
 
 
 class PosUpdate:
@@ -562,9 +576,6 @@ DEFAULT_Z_POS_MM = 2
 WELLPLATE_OFFSET_X_mm = 0  # x offset adjustment for using different plates
 WELLPLATE_OFFSET_Y_mm = 0  # y offset adjustment for using different plates
 
-# for USB spectrometer
-N_SPECTRUM_PER_POINT = 5
-
 # focus measure operator
 FOCUS_MEASURE_OPERATOR = FocusMeasureOperator.LAPE
 
@@ -597,11 +608,12 @@ LASER_AF_MIN_PEAK_DISTANCE = 10
 LASER_AF_MIN_PEAK_PROMINENCE = 0.25
 LASER_AF_SPOT_SPACING = 100
 SHOW_LEGACY_DISPLACEMENT_MEASUREMENT_WINDOWS = False
+LASER_AF_FILTER_SIGMA = None
+LASER_AF_INITIALIZE_CROP_WIDTH = 1200
+LASER_AF_INITIALIZE_CROP_HEIGHT = 800
 
 MULTIPOINT_REFLECTION_AUTOFOCUS_ENABLE_BY_DEFAULT = False
 MULTIPOINT_CONTRAST_AUTOFOCUS_ENABLE_BY_DEFAULT = False
-
-RUN_CUSTOM_MULTIPOINT = False
 
 RETRACT_OBJECTIVE_BEFORE_MOVING_TO_LOADING_POSITION = True
 OBJECTIVE_RETRACTED_POS_MM = 0.1
@@ -632,7 +644,7 @@ ENABLE_SPINNING_DISK_CONFOCAL = False
 USE_LDI_SERIAL_CONTROL = False
 LDI_INTENSITY_MODE = "PC"
 LDI_SHUTTER_MODE = "PC"
-USE_CELESTA_ETHENET_CONTROL = False
+USE_CELESTA_ETHERNET_CONTROL = False
 
 XLIGHT_EMISSION_FILTER_MAPPING = {
     405: 1,
@@ -684,7 +696,6 @@ SCIMICROSCOPY_LED_ARRAY_TURN_ON_DELAY = 0.03  # time to wait before trigger the 
 ENABLE_CLICK_TO_MOVE_BY_DEFAULT = True
 
 # Stitcher
-ENABLE_STITCHER = False
 IS_HCS = False
 DYNAMIC_REGISTRATION = False
 STITCH_COMPLETE_ACQUISITION = False
@@ -789,6 +800,30 @@ OBJECTIVES_CSV_PATH = "objectives.csv"
 SAMPLE_FORMATS_CSV_PATH = "sample_formats.csv"
 
 OBJECTIVES, WELLPLATE_FORMAT_SETTINGS = load_formats()
+
+
+def get_wellplate_settings(wellplate_format):
+    if wellplate_format in WELLPLATE_FORMAT_SETTINGS:
+        settings = WELLPLATE_FORMAT_SETTINGS[wellplate_format]
+    elif wellplate_format == "0":
+        settings = {
+            "format": "0",
+            "a1_x_mm": 0,
+            "a1_y_mm": 0,
+            "a1_x_pixel": 0,
+            "a1_y_pixel": 0,
+            "well_size_mm": 0,
+            "well_spacing_mm": 0,
+            "number_of_skip": 0,
+            "rows": 1,
+            "cols": 1,
+        }
+    else:
+        raise ValueError(
+            f"Invalid wellplate format: {wellplate_format}. Expected formats are: {list(WELLPLATE_FORMAT_SETTINGS.keys())} or '0'"
+        )
+    return settings
+
 
 # limit switch
 X_HOME_SWITCH_POLARITY = LIMIT_SWITCH_POLARITY.X_HOME
@@ -930,6 +965,7 @@ MULTIPOINT_USE_PIEZO_FOR_ZSTACKS = HAS_OBJECTIVE_PIEZO
 # convert str to enum
 FILE_SAVING_OPTION = FileSavingOption.convert_to_enum(FILE_SAVING_OPTION)
 FOCUS_MEASURE_OPERATOR = FocusMeasureOperator.convert_to_enum(FOCUS_MEASURE_OPERATOR)
+DEFAULT_TRIGGER_MODE = TriggerMode.convert_to_var(DEFAULT_TRIGGER_MODE)
 
 # saving path
 if not (DEFAULT_SAVING_PATH.startswith(str(Path.home()))):

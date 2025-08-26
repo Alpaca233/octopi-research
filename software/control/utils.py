@@ -1,3 +1,4 @@
+import collections
 import enum
 import inspect
 import pathlib
@@ -11,7 +12,7 @@ import cv2
 import git
 from numpy import square, mean
 import numpy as np
-from scipy.ndimage import label
+from scipy.ndimage import label, gaussian_filter
 from scipy import signal
 import os
 from typing import Optional, Tuple, List
@@ -203,6 +204,7 @@ def find_spot_location(
     image: np.ndarray,
     mode: SpotDetectionMode = SpotDetectionMode.SINGLE,
     params: Optional[dict] = None,
+    filter_sigma: Optional[int] = None,
     debug_plot: bool = False,
 ) -> Optional[Tuple[float, float]]:
     """Find the location of a spot in an image.
@@ -246,6 +248,11 @@ def find_spot_location(
     p = default_params
 
     try:
+        # Apply Gaussian filter if requested
+        if filter_sigma is not None and filter_sigma > 0:
+            filtered = gaussian_filter(image.astype(float), sigma=filter_sigma)
+            image = np.clip(filtered, 0, 255).astype(np.uint8)
+
         # Get the y position of the spots
         y_intensity_profile = np.sum(image, axis=1)
         if np.all(y_intensity_profile == 0):
@@ -507,11 +514,16 @@ class TimingManager:
                     return "N/A"
                 return f"{min(i):.4f}/{max(i):.4f}"
 
-            return f"{self._name} (N={len(intervals)}): mean={mean(intervals)} [s], median={median(intervals)} [s], min/max={min_max(intervals)} [s]"
+            def total_time(i):
+                if not len(i):
+                    return "N/A"
+                return f"{sum(intervals):.4f}"
+
+            return f"{self._name:>30}: (N={len(intervals)}, total={total_time(intervals)} [s]): mean={mean(intervals)} [s], median={median(intervals)} [s], min/max={min_max(intervals)} [s]"
 
     def __init__(self, name):
         self._name = name
-        self._timers = {}
+        self._timers = collections.OrderedDict()
         self._log = squid.logging.get_logger(self.__class__.__name__)
 
     def get_timer(self, name) -> Timer:

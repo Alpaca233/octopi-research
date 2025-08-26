@@ -24,6 +24,7 @@ from control._def import (
     LASER_AF_MIN_PEAK_DISTANCE,
     LASER_AF_MIN_PEAK_PROMINENCE,
     LASER_AF_SPOT_SPACING,
+    LASER_AF_FILTER_SIGMA,
 )
 from control._def import SpotDetectionMode
 
@@ -57,10 +58,13 @@ class LaserAFConfig(BaseModel):
     min_peak_distance: float = LASER_AF_MIN_PEAK_DISTANCE  # Minimum distance between peaks
     min_peak_prominence: float = LASER_AF_MIN_PEAK_PROMINENCE  # Minimum peak prominence
     spot_spacing: float = LASER_AF_SPOT_SPACING  # Expected spacing between spots
+    filter_sigma: Optional[int] = LASER_AF_FILTER_SIGMA  # Sigma for Gaussian filter
     x_reference: Optional[float] = 0  # Reference position in um
     reference_image: Optional[str] = None  # Stores base64 encoded reference image for cross-correlation check
     reference_image_shape: Optional[tuple] = None
     reference_image_dtype: Optional[str] = None
+    initialize_crop_width: int = 1200  # Width of the center crop used for initialization
+    initialize_crop_height: int = 800  # Height of the center crop used for initialization
 
     @property
     def reference_image_cropped(self) -> Optional[np.ndarray]:
@@ -84,10 +88,12 @@ class LaserAFConfig(BaseModel):
             self.reference_image = None
             self.reference_image_shape = None
             self.reference_image_dtype = None
+            self.has_reference = False
             return
         self.reference_image = base64.b64encode(image.tobytes()).decode("utf-8")
         self.reference_image_shape = image.shape
         self.reference_image_dtype = str(image.dtype)
+        self.has_reference = True
 
     def model_dump(self, serialize=False, **kwargs):
         """Ensure proper serialization of enums to strings"""
@@ -323,16 +329,6 @@ def generate_default_configuration(filename: str) -> None:
             analog_gain=0,
             illumination_source=0,
             illumination_intensity=5,
-            camera_sn="",
-            z_offset=0.0,
-        ),
-        ChannelMode(
-            id="20",
-            name="USB Spectrometer",
-            exposure_time=20,
-            analog_gain=0,
-            illumination_source=6,
-            illumination_intensity=0,
             camera_sn="",
             z_offset=0.0,
         ),
