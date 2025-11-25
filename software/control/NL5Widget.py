@@ -12,8 +12,10 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QComboBox,
 )
 from PyQt5.QtCore import Qt
+from control._def import USE_NL_INTERNAL_STAGE
 
 
 class NL5SettingsDialog(QDialog):
@@ -118,6 +120,24 @@ class NL5Widget(QWidget):
         layout = QVBoxLayout()
         layout.addLayout(layout1)
         layout.addLayout(layout2)
+
+        # Add slit size control if internal stage is enabled
+        if USE_NL_INTERNAL_STAGE and self.nl5.stage_controller is not None:
+            layout3 = QHBoxLayout()
+            layout3.addWidget(QLabel("Slit Size:"))
+
+            self.slit_size_combo = QComboBox()
+            # Add slit sizes from the stage controller
+            slit_sizes = sorted(self.nl5.stage_controller.SLIT_POSITIONS.keys())
+            for size in slit_sizes:
+                self.slit_size_combo.addItem(f"{size} µm", size)
+
+            self.slit_size_combo.currentIndexChanged.connect(self.update_slit_size)
+            layout3.addWidget(self.slit_size_combo)
+            layout3.addStretch()
+
+            layout.addLayout(layout3)
+
         self.setLayout(layout)
 
     def show_settings_dialog(self):
@@ -136,6 +156,12 @@ class NL5Widget(QWidget):
 
     def update_fov_x(self, value):
         self.nl5.set_fov_x(value)
+
+    def update_slit_size(self, index):
+        if USE_NL_INTERNAL_STAGE and self.nl5.stage_controller is not None:
+            slit_width = self.slit_size_combo.itemData(index)
+            if slit_width is not None:
+                self.nl5.stage_controller.set_slit_size(slit_width)
 
 
 if __name__ == "__main__":

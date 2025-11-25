@@ -1,5 +1,6 @@
 import control.RCM_API as RCM_API
 import json
+from control._def import USE_NL_INTERNAL_STAGE, NL_INTERNAL_STAGE_SN
 
 
 class NL5:
@@ -9,6 +10,13 @@ class NL5:
         self.rcm = RCM_API.RCM_API()
         self.rcm.initialize_device(simulated=False)
         self.load_settings()
+
+        # Initialize internal stage controller if enabled
+        self.stage_controller = None
+        if USE_NL_INTERNAL_STAGE:
+            from control.serial_peripherals import NLStageController
+
+            self.stage_controller = NLStageController(SN=NL_INTERNAL_STAGE_SN)
 
     def set_scan_amplitude(self, amplitude):
         self.scan_amplitude = amplitude
@@ -96,6 +104,13 @@ class NL5_Simulation:
 
     def __init__(self):
         self.load_settings()
+
+        # Initialize internal stage controller if enabled
+        self.stage_controller = None
+        if USE_NL_INTERNAL_STAGE:
+            from control.serial_peripherals import NLStageController_Simulation
+
+            self.stage_controller = NLStageController_Simulation(SN=NL_INTERNAL_STAGE_SN)
 
     def set_scan_amplitude(self, amplitude):
         self.scan_amplitude = amplitude

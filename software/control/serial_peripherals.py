@@ -1707,3 +1707,187 @@ class Optospin_Simulation:
 
     def close(self):
         pass
+
+
+class NLStageController:
+    """
+    Controller for RCM Internal Stage devices (SmarAct SCU).
+    Supports slit stage control for NL5 line scanner.
+    Based on RCM Internal Stage integration Guide.
+    """
+
+    # Serial connection settings from PDF
+    BAUDRATE = 9600
+    TIMEOUT = 0.5  # 500ms answer timeout
+
+    # Channel configuration
+    SLIT_CHANNEL = 0  # Slit/pinhole is always on channel 0
+
+    # Stage initialization parameters
+    DEFAULT_FREQUENCY = 5000
+    SENSOR_TYPE = 22
+    HOLD_TIME_INFINITE = 60000  # 60000 ms represents infinity per PDF
+
+    # Slit positions from PDF (AION configuration)
+    SLIT_POSITIONS = {
+        88: 1500,
+        44: 900,
+        22: 300,
+        33: -300,
+        66: -900,
+        132: -1500,
+    }
+
+    def __init__(self, SN=None):
+        """
+        Initialize NL Stage Controller
+
+        Args:
+            SN: Serial number for auto-detection
+        """
+        self.log = squid.logging.get_logger(self.__class__.__name__)
+
+        self.serial_connection = SerialDevice(
+            SN=SN,
+            baudrate=self.BAUDRATE,
+            read_timeout=self.TIMEOUT,
+            bytesize=serial.EIGHTBITS,
+            stopbits=serial.STOPBITS_ONE,
+            parity=serial.PARITY_NONE,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+        )
+
+        self.serial_connection.open_ser()
+
+        # Position offset for calibration (mount-specific adjustment)
+        self.position_offset = 0
+
+        # Initialize the stage
+        self._initialize_stage()
+
+    def _initialize_stage(self):
+        """
+        Initialize the slit stage according to PDF Section 4
+        """
+        self.log.info("Initializing NL internal stage (slit channel)")
+
+        # Set closed loop max frequency
+        self.serial_connection.write(f":SCLF{self.SLIT_CHANNEL}F{self.DEFAULT_FREQUENCY}\n")
+        time.sleep(0.1)
+        self.log.info(f"Set frequency to {self.DEFAULT_FREQUENCY}")
+
+        # Set sensor type
+        self.serial_connection.write(f":SST{self.SLIT_CHANNEL}T{self.SENSOR_TYPE}\n")
+        time.sleep(0.1)
+        self.log.info(f"Set sensor type to {self.SENSOR_TYPE}")
+
+        # Calibrate sensor (homes the stage)
+        self.log.info("Calibrating sensor (homing)... this may take a moment")
+        self.serial_connection.write(f":CS{self.SLIT_CHANNEL}\n")
+        time.sleep(5)  # Wait for homing to complete
+
+        # Move to reference position and set zero
+        self.log.info("Moving to reference position and setting zero...")
+        self.serial_connection.write(f":MTR{self.SLIT_CHANNEL}H{self.HOLD_TIME_INFINITE}Z1\n")
+        time.sleep(2)  # Wait for movement
+
+        self.log.info("Stage initialization complete")
+
+    def move_to_position(self, position_um):
+        """
+        Move stage to absolute position with infinite hold time
+
+        Args:
+            position_um: Target position in micrometers
+        """
+        # Apply offset
+        final_position = position_um + self.position_offset
+
+        self.log.info(f"Moving to position {final_position} um (with offset {self.position_offset})")
+
+        # Send MPA command with infinite hold time
+        command = f":MPA{self.SLIT_CHANNEL}P{final_position}H{self.HOLD_TIME_INFINITE}\n"
+        self.serial_connection.write(command)
+
+    def set_slit_size(self, slit_width_um):
+        """
+        Move to predefined slit position
+
+        Args:
+            slit_width_um: Slit width in micrometers (must be in SLIT_POSITIONS)
+        """
+        if slit_width_um not in self.SLIT_POSITIONS:
+            raise ValueError(
+                f"Invalid slit width: {slit_width_um}. " f"Valid sizes are: {list(self.SLIT_POSITIONS.keys())}"
+            )
+
+        position = self.SLIT_POSITIONS[slit_width_um]
+        self.log.info(f"Setting slit size to {slit_width_um} um")
+        self.move_to_position(position)
+
+    def set_position_offset(self, offset_um):
+        """
+        Set the position offset for mount calibration
+
+        Args:
+            offset_um: Offset in micrometers
+        """
+        self.log.info(f"Setting position offset to {offset_um} um")
+        self.position_offset = offset_um
+
+    def get_firmware_version(self):
+        """
+        Get firmware version
+
+        Returns:
+            Version string (e.g., "1.2.3")
+        """
+        response = self.serial_connection.write_and_read(":V\n", read_delay=0.1)
+        return response.strip() if response else None
+
+    def close(self):
+        """Close serial connection"""
+        if self.serial_connection:
+            self.serial_connection.close()
+
+
+class NLStageController_Simulation:
+    """Simulation version of NLStageController"""
+
+    SLIT_POSITIONS = {
+        88: 1500,
+        44: 900,
+        22: 300,
+        33: -300,
+        66: -900,
+        132: -1500,
+    }
+
+    def __init__(self, SN=None):
+        self.log = squid.logging.get_logger(self.__class__.__name__)
+        self.position_offset = 0
+        self.current_position = 0
+        self.log.info("NL Stage Controller (Simulation) initialized")
+
+    def move_to_position(self, position_um):
+        self.current_position = position_um + self.position_offset
+        self.log.debug(f"[SIM] Moving to position {self.current_position} um")
+
+    def set_slit_size(self, slit_width_um):
+        if slit_width_um not in self.SLIT_POSITIONS:
+            raise ValueError(f"Invalid slit width: {slit_width_um}")
+        position = self.SLIT_POSITIONS[slit_width_um]
+        self.log.info(f"[SIM] Setting slit size to {slit_width_um} um")
+        self.move_to_position(position)
+
+    def set_position_offset(self, offset_um):
+        self.log.info(f"[SIM] Setting position offset to {offset_um} um")
+        self.position_offset = offset_um
+
+    def get_firmware_version(self):
+        return "1.0.0-sim"
+
+    def close(self):
+        pass

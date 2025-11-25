@@ -677,6 +677,8 @@ NL5_USE_AOUT = False
 NL5_USE_DOUT = True
 NL5_TRIGGER_PIN = 2
 NL5_WAVENLENGTH_MAP = {405: 1, 470: 2, 488: 2, 545: 3, 555: 3, 561: 3, 637: 4, 638: 4, 640: 4}
+USE_NL_INTERNAL_STAGE = False
+NL_INTERNAL_STAGE_SN = None  # Serial number for stage controller
 
 # Laser AF characterization mode
 LASER_AF_CHARACTERIZATION_MODE = False
