@@ -275,6 +275,8 @@ class HighContentScreeningGui(QMainWindow):
 
         self.microscope: control.microscope.Microscope = microscope
         self.stage: AbstractStage = microscope.stage
+        if USE_NIKON_PFS:
+            self.nikon_pfs = microscope.nikon_pfs
         self.camera: AbstractCamera = microscope.camera
         self.microcontroller: Microcontroller = microscope.low_level_drivers.microcontroller
 
@@ -567,6 +569,9 @@ class HighContentScreeningGui(QMainWindow):
 
             self.nl5Wdiget = NL5Widget.NL5Widget(self.nl5)
 
+        if USE_NIKON_PFS:
+            self.nikonPFSWidget = widgets.NikonPFSWidget(self.nikon_pfs)
+
         if CAMERA_TYPE in ["Toupcam", "Tucsen", "Kinetix"]:
             self.cameraSettingWidget = widgets.CameraSettingsWidget(
                 self.camera,
@@ -839,6 +844,8 @@ class HighContentScreeningGui(QMainWindow):
             self.cameraTabWidget.addTab(self.piezoWidget, "Piezo")
         if ENABLE_NL5:
             self.cameraTabWidget.addTab(self.nl5Wdiget, "NL5")
+        if USE_NIKON_PFS:
+            self.cameraTabWidget.addTab(self.nikonPFSWidget, "Nikon PFS")
         if ENABLE_SPINNING_DISK_CONFOCAL:
             self.cameraTabWidget.addTab(self.spinningDiskConfocalWidget, "Confocal")
         if self.emission_filter_wheel:

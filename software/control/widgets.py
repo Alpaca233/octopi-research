@@ -11832,3 +11832,95 @@ class SurfacePlotWidget(QWidget):
         print(f"Clicked Point: x={self.x[idx]:.3f}, y={self.y[idx]:.3f}, z={self.z[idx]:.3f}")
         self.canvas.draw()
         self.signal_point_clicked.emit(self.x[idx], self.y[idx])
+
+
+class NikonPFSWidget(QWidget):
+    def __init__(self, nikon_pfs_controller, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pfs = nikon_pfs_controller
+
+        self.btn_init = QPushButton("Initialize Nikon PFS")
+
+        self.btn_pfs = QPushButton("PFS")
+        self.btn_pfs.setCheckable(True)
+
+        self.spin_offset = QDoubleSpinBox()
+        self.spin_offset.setDecimals(2)
+        self.spin_offset.setRange(-2000.0, 2000.0)
+        self.spin_offset.setSingleStep(1.00)
+        self.spin_offset.setSuffix(" μm")
+        self.spin_offset.setKeyboardTracking(False)
+
+        layout = QGridLayout()
+        layout.addWidget(self.btn_init, 0, 0, 1, 2)
+        layout.addWidget(QLabel("Toggle PFS"), 1, 0)
+        layout.addWidget(self.btn_pfs, 1, 1)
+        layout.addWidget(QLabel("Offset"), 2, 0)
+        layout.addWidget(self.spin_offset, 2, 1)
+        self.setLayout(layout)
+
+        self.btn_init.clicked.connect(self._on_init_clicked)
+        self.btn_pfs.toggled.connect(self._on_pfs_toggled)
+        self.spin_offset.editingFinished.connect(self._apply_offset)
+
+        self._set_initialized_ui(self._is_initialized())
+
+    def _is_initialized(self) -> bool:
+        return bool(getattr(self.pfs, "is_initialized", False))
+
+    def _set_initialized_ui(self, initialized: bool):
+        self.btn_pfs.setEnabled(initialized)
+        self.spin_offset.setEnabled(initialized)
+        self.btn_init.setEnabled(not initialized)
+
+        if not initialized:
+            self.btn_pfs.blockSignals(True)
+            self.btn_pfs.setChecked(False)
+            self.btn_pfs.setText("PFS (not initialized)")
+            self.btn_pfs.blockSignals(False)
+
+    def _on_init_clicked(self):
+        try:
+            self.pfs.initialize_device()
+            self._set_initialized_ui(True)
+            self.refresh_all()
+        except Exception as e:
+            error_dialog(str(e), title="Nikon PFS Error")
+            self._set_initialized_ui(False)
+
+    def _set_pfs_button_ui(self, on: bool):
+        self.btn_pfs.blockSignals(True)
+        self.btn_pfs.setChecked(bool(on))
+        self.btn_pfs.setText("Turn Off" if on else "Turn On")
+        self.btn_pfs.blockSignals(False)
+
+    def _on_pfs_toggled(self, on: bool):
+        if not self._is_initialized():
+            return
+        try:
+            self.pfs.set_pfs_state(bool(on))
+            self.refresh_all()
+        except Exception as e:
+            error_dialog(str(e), title="Nikon PFS Error")
+            self.refresh_all()
+
+    def _apply_offset(self):
+        if not self._is_initialized():
+            return
+        try:
+            self.pfs.set_offset(float(self.spin_offset.value()))
+        except Exception as e:
+            error_dialog(str(e), title="Nikon PFS Error")
+            self.refresh_all()
+
+    def refresh_all(self):
+        if not self._is_initialized():
+            self._set_initialized_ui(False)
+            return
+
+        on = self.pfs.get_pfs_state()
+        self._set_pfs_button_ui(on)
+
+        self.spin_offset.blockSignals(True)
+        self.spin_offset.setValue(float(self.pfs.get_offset()))
+        self.spin_offset.blockSignals(False)

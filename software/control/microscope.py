@@ -221,6 +221,12 @@ class Microscope:
                 raise ValueError("For a cephla stage microscope, you must provide a microcontroller.")
             stage = CephlaStage(low_level_devices.microcontroller, stage_config)
 
+        if control._def.USE_NIKON_PFS:
+            from control.nikon_ti2 import NikonTi2Adapter
+
+            adapter = NikonTi2Adapter(unload_before_init=True)
+            stage, nikon_pfs = adapter.initialize(stage_config=None)
+
         addons = MicroscopeAddons.build_from_global_config(
             stage, low_level_devices.microcontroller, simulated=simulated
         )
