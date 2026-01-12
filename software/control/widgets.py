@@ -2475,7 +2475,6 @@ class LiveControlWidget(QFrame):
         streamHandler,
         liveController,
         objectiveStore,
-        channelConfigurationManager,
         show_trigger_options=True,
         show_display_options=False,
         show_autolevel=False,
@@ -2491,7 +2490,6 @@ class LiveControlWidget(QFrame):
         self.camera = self.liveController.microscope.camera
         self.streamHandler = streamHandler
         self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
         self.fps_trigger = 10
         self.fps_display = 10
         self.liveController.set_trigger_fps(self.fps_trigger)
@@ -2753,24 +2751,27 @@ class LiveControlWidget(QFrame):
     def update_config_exposure_time(self, new_value):
         if self.is_switching_mode == False:
             self.currentConfiguration.exposure_time = new_value
-            self.channelConfigurationManager.update_configuration(
-                self.objectiveStore.current_objective, self.currentConfiguration.id, "ExposureTime", new_value
+            self.liveController.microscope.config_repo.update_channel_setting(
+                self.objectiveStore.current_objective, self.currentConfiguration.name, "ExposureTime", new_value
             )
             self.signal_newExposureTime.emit(new_value)
 
     def update_config_analog_gain(self, new_value):
         if self.is_switching_mode == False:
             self.currentConfiguration.analog_gain = new_value
-            self.channelConfigurationManager.update_configuration(
-                self.objectiveStore.current_objective, self.currentConfiguration.id, "AnalogGain", new_value
+            self.liveController.microscope.config_repo.update_channel_setting(
+                self.objectiveStore.current_objective, self.currentConfiguration.name, "AnalogGain", new_value
             )
             self.signal_newAnalogGain.emit(new_value)
 
     def update_config_illumination_intensity(self, new_value):
         if self.is_switching_mode == False:
             self.currentConfiguration.illumination_intensity = new_value
-            self.channelConfigurationManager.update_configuration(
-                self.objectiveStore.current_objective, self.currentConfiguration.id, "IlluminationIntensity", new_value
+            self.liveController.microscope.config_repo.update_channel_setting(
+                self.objectiveStore.current_objective,
+                self.currentConfiguration.name,
+                "IlluminationIntensity",
+                new_value,
             )
             self.liveController.update_illumination()
 
@@ -3680,7 +3681,6 @@ class FlexibleMultiPointWidget(QFrame):
         navigationViewer,
         multipointController,
         objectiveStore,
-        channelConfigurationManager,
         scanCoordinates,
         focusMapWidget,
         napariMosaicWidget=None,
@@ -3696,7 +3696,6 @@ class FlexibleMultiPointWidget(QFrame):
         self.navigationViewer = navigationViewer
         self.multipointController = multipointController
         self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
         self.scanCoordinates = scanCoordinates
         self.focusMapWidget = focusMapWidget
         if napariMosaicWidget is not None:
@@ -4976,7 +4975,6 @@ class WellplateMultiPointWidget(QFrame):
         multipointController,
         liveController,
         objectiveStore,
-        channelConfigurationManager,
         scanCoordinates,
         focusMapWidget=None,
         napariMosaicWidget=None,
@@ -4992,7 +4990,6 @@ class WellplateMultiPointWidget(QFrame):
         self.multipointController = multipointController
         self.liveController = liveController
         self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
         self.scanCoordinates = scanCoordinates
         self.focusMapWidget = focusMapWidget
         if napariMosaicWidget is not None:
@@ -6947,7 +6944,6 @@ class MultiPointWithFluidicsWidget(QFrame):
         navigationViewer,
         multipointController,
         objectiveStore,
-        channelConfigurationManager,
         scanCoordinates,
         napariMosaicWidget=None,
         *args,
@@ -6959,7 +6955,6 @@ class MultiPointWithFluidicsWidget(QFrame):
         self.navigationViewer = navigationViewer
         self.multipointController = multipointController
         self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
         self.scanCoordinates = scanCoordinates
         if napariMosaicWidget is not None:
             self.napariMosaicWidget = napariMosaicWidget
@@ -8356,7 +8351,6 @@ class NapariLiveWidget(QWidget):
         liveController,
         stage: AbstractStage,
         objectiveStore,
-        channelConfigurationManager,
         contrastManager,
         wellSelectionWidget=None,
         show_trigger_options=True,
@@ -8371,7 +8365,6 @@ class NapariLiveWidget(QWidget):
         self.liveController: LiveController = liveController
         self.stage = stage
         self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
         self.wellSelectionWidget = wellSelectionWidget
         self.live_configuration = self.liveController.currentConfiguration
         self.image_width = 0
@@ -8716,22 +8709,22 @@ class NapariLiveWidget(QWidget):
 
     def update_config_exposure_time(self, new_value):
         self.live_configuration.exposure_time = new_value
-        self.channelConfigurationManager.update_configuration(
-            self.objectiveStore.current_objective, self.live_configuration.id, "ExposureTime", new_value
+        self.liveController.microscope.config_repo.update_channel_setting(
+            self.objectiveStore.current_objective, self.live_configuration.name, "ExposureTime", new_value
         )
         self.signal_newExposureTime.emit(new_value)
 
     def update_config_analog_gain(self, new_value):
         self.live_configuration.analog_gain = new_value
-        self.channelConfigurationManager.update_configuration(
-            self.objectiveStore.current_objective, self.live_configuration.id, "AnalogGain", new_value
+        self.liveController.microscope.config_repo.update_channel_setting(
+            self.objectiveStore.current_objective, self.live_configuration.name, "AnalogGain", new_value
         )
         self.signal_newAnalogGain.emit(new_value)
 
     def update_config_illumination_intensity(self, new_value):
         self.live_configuration.illumination_intensity = new_value
-        self.channelConfigurationManager.update_configuration(
-            self.objectiveStore.current_objective, self.live_configuration.id, "IlluminationIntensity", new_value
+        self.liveController.microscope.config_repo.update_channel_setting(
+            self.objectiveStore.current_objective, self.live_configuration.name, "IlluminationIntensity", new_value
         )
         self.liveController.update_illumination()
 
@@ -9782,7 +9775,6 @@ class TrackingControllerWidget(QFrame):
         self,
         trackingController: TrackingController,
         objectiveStore,
-        channelConfigurationManager,
         show_configurations=True,
         main=None,
         *args,
@@ -9791,7 +9783,6 @@ class TrackingControllerWidget(QFrame):
         super().__init__(*args, **kwargs)
         self.trackingController = trackingController
         self.objectiveStore = objectiveStore
-        self.channelConfigurationManager = channelConfigurationManager
         self.base_path_is_set = False
         self.add_components(show_configurations)
         self.setFrameStyle(QFrame.Panel | QFrame.Raised)
