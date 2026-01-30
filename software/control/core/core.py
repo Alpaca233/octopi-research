@@ -841,9 +841,8 @@ class ImageDisplayWindow(QMainWindow):
         self.setCentralWidget(self.widget)
 
         # set window size
-        screen = QApplication.primaryScreen()
-        screen_geometry = screen.availableGeometry()
-        width = min(screen_geometry.height() * 0.9, 1000)
+        desktopWidget = QDesktopWidget()
+        width = min(desktopWidget.height() * 0.9, 1000)
         height = width
         self.setFixedSize(int(width), int(height))
 

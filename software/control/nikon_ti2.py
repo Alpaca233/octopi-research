@@ -125,7 +125,7 @@ class NikonTi2PFS:
         # Resolve properties.
         self._prop_enable = self._pick_property(self.pfs_label, self._PFS_ENABLE_CANDIDATES, must=True)
         self._prop_status = self._pick_property(self.pfs_label, self._PFS_STATUS_CANDIDATES, must=False)
-        self._prop_offset = self._pick_property(self.pfs_offset_label, self._PFS_OFFSET_PROP_CANDIDATES, must=True)
+        # self._prop_offset = self._pick_property(self.pfs_offset_label, self._PFS_OFFSET_PROP_CANDIDATES, must=True)
 
         self._initialized = True
 
@@ -142,19 +142,22 @@ class NikonTi2PFS:
 
     def set_offset(self, offset_um: float) -> None:
         self._require_initialized()
-        assert self._prop_offset is not None
+        # assert self._prop_offset is not None
         try:
-            self.core.setProperty(self.pfs_offset_label, self._prop_offset, float(offset_um))
+            # self.core.setProperty(self.pfs_offset_label, self._prop_offset, float(offset_um))
+            self.core.setPosition(self.pfs_offset_label, float(offset_um))
         except Exception as e:
+            print(e)
             raise PFSException(
                 f"Failed to set Ti2 PFS offset via {self.pfs_offset_label}.{self._prop_offset} to {offset_um} µm: {e}"
             ) from e
 
     def get_offset(self) -> float:
         self._require_initialized()
-        assert self._prop_offset is not None
+        # assert self._prop_offset is not None
         try:
-            val = self.core.getProperty(self.pfs_offset_label, self._prop_offset)
+            # val = self.core.getProperty(self.pfs_offset_label, self._prop_offset)
+            val = self.core.getPosition(self.pfs_offset_label)
             return float(val)
         except Exception as e:
             raise PFSException(
@@ -364,17 +367,17 @@ class NikonTi2Stage(AbstractStage):
     def move_x_to(self, abs_mm: float, blocking: bool = True):
         x_um, y_um = self._get_xy_um()
         target_x_um = _mm_to_um(abs_mm)
-        self._enforce_limits("x", abs_mm)
+        # self._enforce_limits("x", abs_mm)
         self._set_xy_um(target_x_um, y_um, blocking=blocking)
 
     def move_y_to(self, abs_mm: float, blocking: bool = True):
         x_um, y_um = self._get_xy_um()
         target_y_um = _mm_to_um(abs_mm)
-        self._enforce_limits("y", abs_mm)
+        # self._enforce_limits("y", abs_mm)
         self._set_xy_um(x_um, target_y_um, blocking=blocking)
 
     def move_z_to(self, abs_mm: float, blocking: bool = True):
-        self._enforce_limits("z", abs_mm)
+        # self._enforce_limits("z", abs_mm)
         target_z_um = _mm_to_um(abs_mm)
         self._set_z_um(target_z_um, blocking=blocking)
 
@@ -395,6 +398,8 @@ class NikonTi2Stage(AbstractStage):
 
     # --- homing / zeroing ---
     def home(self, x: bool, y: bool, z: bool, theta: bool, blocking: bool = True):
+        pass
+        """
         if theta:
             raise NotImplementedError("Ti2 theta stage control not implemented in this wrapper.")
 
@@ -403,6 +408,7 @@ class NikonTi2Stage(AbstractStage):
             self._call_home(self.xy_label, blocking=blocking)
         if z:
             self._call_home(self.z_label, blocking=blocking)
+        """
 
     def zero(self, x: bool, y: bool, z: bool, theta: bool, blocking: bool = True):
         if theta:
@@ -454,7 +460,7 @@ class NikonTi2Stage(AbstractStage):
 
     def _get_xy_um(self) -> Tuple[float, float]:
         try:
-            x_um, y_um = self.core.getXYStagePosition(self.xy_label)
+            x_um, y_um = self.core.getXYPosition(self.xy_label)
             return float(x_um), float(y_um)
         except Exception as e:
             raise StageException(f"Failed to read XY position from '{self.xy_label}': {e}") from e
@@ -470,8 +476,8 @@ class NikonTi2Stage(AbstractStage):
         # Convert software limits (absolute) if present by computing target.
         if any(v is not None for lims in (self._limits["x"], self._limits["y"]) for v in lims):
             x_um, y_um = self._get_xy_um()
-            self._enforce_limits("x", _um_to_mm(x_um + dx_um))
-            self._enforce_limits("y", _um_to_mm(y_um + dy_um))
+            # self._enforce_limits("x", _um_to_mm(x_um + dx_um))
+            # self._enforce_limits("y", _um_to_mm(y_um + dy_um))
 
         try:
             self.core.setRelativeXYPosition(self.xy_label, float(dx_um), float(dy_um))
@@ -697,6 +703,323 @@ class NikonTi2Adapter:
             f"Failed to load '{label}' from module '{module}'. Tried device names: {list(candidates)}.\n"
             f"Errors: {errors}"
         )
+
+    @property
+    def is_initialized(self) -> bool:
+        return bool(self._initialized)
+
+
+# -----------------------------------------------------------------------------
+# Simulated Ti2 PFS
+# -----------------------------------------------------------------------------
+class NikonTi2PFS_Simulation:
+    """
+    Simulated Nikon Ti2 PFS controller for testing without hardware.
+
+    Provides the same API as NikonTi2PFS but stores state internally
+    without requiring actual hardware or Micro-Manager.
+    """
+
+    def __init__(
+        self,
+        *,
+        pfs_label: str = "PFS",
+        pfs_offset_label: str = "PFSOffset",
+        simulate_delays: bool = True,
+    ):
+        self.pfs_label = pfs_label
+        self.pfs_offset_label = pfs_offset_label
+        self.simulate_delays = simulate_delays
+
+        self._initialized = False
+        self._pfs_on = False
+        self._offset_um = 0.0
+        self._locked = False
+
+    def initialize_device(self) -> None:
+        """Initialize the simulated PFS device."""
+        self._initialized = True
+        self._pfs_on = False
+        self._offset_um = 0.0
+        self._locked = False
+
+    def set_pfs_state(self, on: bool) -> None:
+        self._require_initialized()
+        self._pfs_on = bool(on)
+        if on:
+            # When turning on, simulate acquiring lock after a brief delay
+            if self.simulate_delays:
+                time.sleep(0.1)
+            self._locked = True
+        else:
+            self._locked = False
+
+    def get_pfs_state(self) -> bool:
+        self._require_initialized()
+        return self._pfs_on
+
+    def set_offset(self, offset_um: float) -> None:
+        self._require_initialized()
+        self._offset_um = float(offset_um)
+        if self.simulate_delays:
+            time.sleep(0.01)
+
+    def get_offset(self) -> float:
+        self._require_initialized()
+        return self._offset_um
+
+    def wait_until_locked(
+        self,
+        timeout_s: float = 2.0,
+        *,
+        settle_ms: int = 50,
+        poll_ms: int = 5,
+        allow_when_off: bool = False,
+    ) -> None:
+        """
+        Wait until PFS is locked.
+        In simulation, this immediately succeeds if PFS is on.
+        """
+        self._require_initialized()
+
+        if allow_when_off and not self._pfs_on:
+            return
+
+        if not self._pfs_on:
+            raise TimeoutError("Simulated PFS is not on, cannot lock")
+
+        # Simulate settling time
+        if self.simulate_delays:
+            time.sleep(settle_ms / 1000.0)
+
+        self._locked = True
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise PFSException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return bool(self._initialized)
+
+    @property
+    def is_locked(self) -> bool:
+        """Additional property for simulation: check if PFS is locked."""
+        return self._locked
+
+
+# -----------------------------------------------------------------------------
+# Simulated Ti2 Stage (XY + Z)
+# -----------------------------------------------------------------------------
+class NikonTi2Stage_Simulation(AbstractStage):
+    """
+    Simulated Nikon Ti2 stage wrapper (XY + Z) for testing without hardware.
+
+    Units: mm (consistent with AbstractStage interface)
+    """
+
+    def __init__(
+        self,
+        stage_config: Any = None,
+        *,
+        xy_label: str = "XYStage",
+        z_label: str = "ZDrive",
+        simulate_delays: bool = True,
+    ):
+        try:
+            super().__init__(stage_config)
+        except Exception:
+            self._config = stage_config
+        self.xy_label = xy_label
+        self.z_label = z_label
+        self.simulate_delays = simulate_delays
+
+        # Simulated position state (in mm)
+        self._x_mm = 0.0
+        self._y_mm = 0.0
+        self._z_mm = 0.0
+
+        # Movement simulation parameters
+        self._xy_speed_mm_per_s = 10.0  # mm/s for XY movement
+        self._z_speed_mm_per_s = 2.0  # mm/s for Z movement
+        self._busy = False
+
+        # Software limits (in mm). None means "no limit".
+        self._limits: Dict[str, Tuple[Optional[float], Optional[float]]] = {
+            "x": (None, None),
+            "y": (None, None),
+            "z": (None, None),
+        }
+
+    # --- relative moves ---
+    def move_x(self, rel_mm: float, blocking: bool = True):
+        target = self._x_mm + rel_mm
+        # self._enforce_limits("x", target)
+        self._simulate_move("xy", abs(rel_mm), blocking)
+        self._x_mm = target
+
+    def move_y(self, rel_mm: float, blocking: bool = True):
+        target = self._y_mm + rel_mm
+        # self._enforce_limits("y", target)
+        self._simulate_move("xy", abs(rel_mm), blocking)
+        self._y_mm = target
+
+    def move_z(self, rel_mm: float, blocking: bool = True):
+        target = self._z_mm + rel_mm
+        # self._enforce_limits("z", target)
+        self._simulate_move("z", abs(rel_mm), blocking)
+        self._z_mm = target
+
+    # --- absolute moves ---
+    def move_x_to(self, abs_mm: float, blocking: bool = True):
+        # self._enforce_limits("x", abs_mm)
+        distance = abs(abs_mm - self._x_mm)
+        self._simulate_move("xy", distance, blocking)
+        self._x_mm = abs_mm
+
+    def move_y_to(self, abs_mm: float, blocking: bool = True):
+        # self._enforce_limits("y", abs_mm)
+        distance = abs(abs_mm - self._y_mm)
+        self._simulate_move("xy", distance, blocking)
+        self._y_mm = abs_mm
+
+    def move_z_to(self, abs_mm: float, blocking: bool = True):
+        # self._enforce_limits("z", abs_mm)
+        distance = abs(abs_mm - self._z_mm)
+        self._simulate_move("z", distance, blocking)
+        self._z_mm = abs_mm
+
+    # --- status/position ---
+    def get_pos(self) -> Pos:
+        return Pos(x_mm=self._x_mm, y_mm=self._y_mm, z_mm=self._z_mm, theta_rad=None)
+
+    def get_state(self) -> StageStage:
+        return StageStage(busy=self._busy)
+
+    # --- homing / zeroing ---
+    def home(self, x: bool, y: bool, z: bool, theta: bool, blocking: bool = True):
+        if theta:
+            raise NotImplementedError("Ti2 theta stage control not implemented in this wrapper.")
+
+        if x or y:
+            if self.simulate_delays and blocking:
+                time.sleep(0.5)  # Simulate homing delay
+            if x:
+                self._x_mm = 0.0
+            if y:
+                self._y_mm = 0.0
+
+        if z:
+            if self.simulate_delays and blocking:
+                time.sleep(0.3)  # Simulate homing delay
+            self._z_mm = 0.0
+
+    def zero(self, x: bool, y: bool, z: bool, theta: bool, blocking: bool = True):
+        if theta:
+            raise NotImplementedError("Ti2 theta stage control not implemented in this wrapper.")
+
+        # Zeroing sets current position as origin
+        if x:
+            self._x_mm = 0.0
+        if y:
+            self._y_mm = 0.0
+        if z:
+            self._z_mm = 0.0
+
+    def set_limits(
+        self,
+        x_pos_mm: Optional[float] = None,
+        x_neg_mm: Optional[float] = None,
+        y_pos_mm: Optional[float] = None,
+        y_neg_mm: Optional[float] = None,
+        z_pos_mm: Optional[float] = None,
+        z_neg_mm: Optional[float] = None,
+        theta_pos_rad: Optional[float] = None,
+        theta_neg_rad: Optional[float] = None,
+    ):
+        if theta_pos_rad is not None or theta_neg_rad is not None:
+            raise NotImplementedError("Theta limits not supported in this wrapper.")
+
+        self._limits["x"] = (x_neg_mm, x_pos_mm)
+        self._limits["y"] = (y_neg_mm, y_pos_mm)
+        self._limits["z"] = (z_neg_mm, z_pos_mm)
+
+    # ----- internal helpers -----
+    def _enforce_limits(self, axis: str, value_mm: float) -> None:
+        neg, pos = self._limits[axis]
+        if neg is not None and value_mm < neg:
+            raise StageException(f"{axis}-axis target {value_mm} mm is below limit {neg} mm")
+        if pos is not None and value_mm > pos:
+            raise StageException(f"{axis}-axis target {value_mm} mm is above limit {pos} mm")
+
+    def _simulate_move(self, axis_type: str, distance_mm: float, blocking: bool) -> None:
+        """Simulate movement delay based on distance and speed."""
+        if not self.simulate_delays:
+            return
+
+        if axis_type == "xy":
+            speed = self._xy_speed_mm_per_s
+        else:
+            speed = self._z_speed_mm_per_s
+
+        move_time = distance_mm / speed if speed > 0 else 0
+
+        if blocking:
+            self._busy = True
+            time.sleep(min(move_time, 1.0))  # Cap at 1 second for simulation
+            self._busy = False
+
+
+# -----------------------------------------------------------------------------
+# Simulated Adapter: returns simulated (stage, pfs)
+# -----------------------------------------------------------------------------
+class NikonTi2Adapter_Simulation:
+    """
+    Simulated single-entry-point initializer for Nikon Ti2.
+
+    On initialize(), this returns two *ready-to-use* simulated objects:
+      (stage: NikonTi2Stage_Simulation, pfs: NikonTi2PFS_Simulation)
+    """
+
+    def __init__(
+        self,
+        *,
+        xy_label: str = "XYStage",
+        z_label: str = "ZDrive",
+        pfs_label: str = "PFS",
+        pfs_offset_label: str = "PFSOffset",
+        simulate_delays: bool = True,
+    ):
+        self.xy_label = xy_label
+        self.z_label = z_label
+        self.pfs_label = pfs_label
+        self.pfs_offset_label = pfs_offset_label
+        self.simulate_delays = simulate_delays
+
+        self._initialized = False
+
+    def initialize(self, *, stage_config: Any = None) -> Tuple["NikonTi2Stage_Simulation", "NikonTi2PFS_Simulation"]:
+        """
+        Initialize simulated Ti2 devices, then return (stage, pfs).
+
+        stage_config is forwarded to NikonTi2Stage_Simulation.
+        """
+        stage = NikonTi2Stage_Simulation(
+            stage_config,
+            xy_label=self.xy_label,
+            z_label=self.z_label,
+            simulate_delays=self.simulate_delays,
+        )
+        pfs = NikonTi2PFS_Simulation(
+            pfs_label=self.pfs_label,
+            pfs_offset_label=self.pfs_offset_label,
+            simulate_delays=self.simulate_delays,
+        )
+
+        pfs.initialize_device()
+
+        self._initialized = True
+        return stage, pfs
 
     @property
     def is_initialized(self) -> bool:

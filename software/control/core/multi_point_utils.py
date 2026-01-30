@@ -51,7 +51,6 @@ class AcquisitionParameters:
     z_range: Tuple[float, float]
 
     use_fluidics: bool
-    skip_saving: bool = False
 
 
 @dataclass

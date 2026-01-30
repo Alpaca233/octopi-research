@@ -136,8 +136,7 @@ class MultiPointWorker:
         # This is only touched via the image callback path.  Don't touch it outside of there!
         self._current_round_images = {}
 
-        self.skip_saving = acquisition_parameters.skip_saving
-        job_classes = [] if self.skip_saving else [SaveImageJob]
+        job_classes = [SaveImageJob]
         if extra_job_classes:
             job_classes.extend(extra_job_classes)
 

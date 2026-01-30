@@ -1,7 +1,7 @@
 import control._def
 
 import control.gui_hcs
-from qtpy.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox
 
 import control.microscope
 

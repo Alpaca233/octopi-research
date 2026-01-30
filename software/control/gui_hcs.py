@@ -1,6 +1,5 @@
 # set QT_API environment variable
 import os
-from configparser import ConfigParser
 
 from control.core.auto_focus_controller import AutoFocusController
 from control.core.job_processing import CaptureInfo
@@ -264,7 +263,6 @@ class QtMultiPointController(MultiPointController, QObject):
 class HighContentScreeningGui(QMainWindow):
     fps_software_trigger = 100
     LASER_BASED_FOCUS_TAB_NAME = "Laser-Based Focus"
-    signal_performance_mode_changed = Signal(bool)
 
     def __init__(
         self, microscope: control.microscope.Microscope, is_simulation=False, live_only_mode=False, *args, **kwargs
@@ -276,7 +274,7 @@ class HighContentScreeningGui(QMainWindow):
         self.microscope: control.microscope.Microscope = microscope
         self.stage: AbstractStage = microscope.stage
         if USE_NIKON_PFS:
-            self.nikon_pfs = microscope.nikon_pfs
+            self.nikon_pfs = microscope.addons.nikon_pfs
         self.camera: AbstractCamera = microscope.camera
         self.microcontroller: Microcontroller = microscope.low_level_drivers.microcontroller
 
@@ -388,9 +386,6 @@ class HighContentScreeningGui(QMainWindow):
         self.setup_layout()
         self.make_connections()
 
-        # Emit initial performance mode state to sync widgets
-        self.signal_performance_mode_changed.emit(self.performance_mode)
-
         # Initialize live scan grid state
         self.wellplateMultiPointWidget.initialize_live_scan_grid_state()
 
@@ -419,13 +414,6 @@ class HighContentScreeningGui(QMainWindow):
         # Create the menu bar
         menubar = self.menuBar()
         settings_menu = menubar.addMenu("Settings")
-
-        # Configuration action
-        config_action = QAction("Configuration...", self)
-        config_action.setMenuRole(QAction.NoRole)
-        config_action.triggered.connect(self.openPreferences)
-        settings_menu.addAction(config_action)
-
         if SUPPORT_SCIMICROSCOPY_LED_ARRAY:
             led_matrix_action = QAction("LED Matrix", self)
             led_matrix_action.triggered.connect(self.openLedMatrixSettings)
@@ -683,7 +671,6 @@ class HighContentScreeningGui(QMainWindow):
             self.channelConfigurationManager,
             self.scanCoordinates,
             self.focusMapWidget,
-            self.napariMosaicDisplayWidget,
         )
         self.wellplateMultiPointWidget = widgets.WellplateMultiPointWidget(
             self.stage,
@@ -962,17 +949,14 @@ class HighContentScreeningGui(QMainWindow):
 
         if ENABLE_FLEXIBLE_MULTIPOINT:
             self.flexibleMultiPointWidget.signal_acquisition_started.connect(self.toggleAcquisitionStart)
-            self.signal_performance_mode_changed.connect(self.flexibleMultiPointWidget.set_performance_mode)
 
         if ENABLE_WELLPLATE_MULTIPOINT:
             self.wellplateMultiPointWidget.signal_acquisition_started.connect(self.toggleAcquisitionStart)
             self.wellplateMultiPointWidget.signal_toggle_live_scan_grid.connect(self.toggle_live_scan_grid)
-            self.signal_performance_mode_changed.connect(self.wellplateMultiPointWidget.set_performance_mode)
 
         if RUN_FLUIDICS:
             self.multiPointWithFluidicsWidget.signal_acquisition_started.connect(self.toggleAcquisitionStart)
             self.fluidicsWidget.fluidics_initialized_signal.connect(self.multiPointWithFluidicsWidget.init_fluidics)
-            self.signal_performance_mode_changed.connect(self.multiPointWithFluidicsWidget.set_performance_mode)
 
         self.profileWidget.signal_profile_changed.connect(self.liveControlWidget.refresh_mode_list)
 
@@ -1336,7 +1320,6 @@ class HighContentScreeningGui(QMainWindow):
         self.performanceModeToggle.setText(button_txt + " Performance Mode")
         self.updateNapariConnections()
         self.toggleNapariTabs()
-        self.signal_performance_mode_changed.emit(self.performance_mode)
         print(f"Performance mode {'enabled' if self.performance_mode else 'disabled'}")
 
     def setAcquisitionDisplayTabs(self, selected_configurations, Nz):
@@ -1357,15 +1340,6 @@ class HighContentScreeningGui(QMainWindow):
         if SUPPORT_SCIMICROSCOPY_LED_ARRAY:
             dialog = widgets.LedMatrixSettingsDialog(self.liveController.led_array)
             dialog.exec_()
-
-    def openPreferences(self):
-        if CACHED_CONFIG_FILE_PATH and os.path.exists(CACHED_CONFIG_FILE_PATH):
-            config = ConfigParser()
-            config.read(CACHED_CONFIG_FILE_PATH)
-            dialog = widgets.PreferencesDialog(config, CACHED_CONFIG_FILE_PATH, self)
-            dialog.exec_()
-        else:
-            self.log.warning("No configuration file found")
 
     def onTabChanged(self, index):
         is_flexible_acquisition = (
@@ -1440,7 +1414,7 @@ class HighContentScreeningGui(QMainWindow):
 
             # replace and reconnect new well selector
             if format_ == "1536 well plate":
-                self.replaceWellSelectionWidget(widgets.Well1536SelectionWidget(self.wellplateFormatWidget))
+                self.replaceWellSelectionWidget(widgets.Well1536SelectionWidget())
                 self.connectWellSelectionWidget()
             elif isinstance(self.wellSelectionWidget, widgets.Well1536SelectionWidget):
                 self.replaceWellSelectionWidget(widgets.WellSelectionWidget(format_, self.wellplateFormatWidget))

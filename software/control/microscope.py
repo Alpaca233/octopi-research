@@ -133,6 +133,14 @@ class MicroscopeAddons:
             )
             sci_microscopy_led_array.set_NA(control._def.SCIMICROSCOPY_LED_ARRAY_DEFAULT_NA)
 
+        nikon_pfs = None
+        nikon_stage = None
+        if control._def.USE_NIKON_PFS:
+            from control.nikon_ti2 import NikonTi2Adapter, NikonTi2Adapter_Simulation
+
+            adapter = NikonTi2Adapter(unload_before_init=True) if not simulated else NikonTi2Adapter_Simulation()
+            nikon_stage, nikon_pfs = adapter.initialize(stage_config=squid.config.get_stage_config())
+
         return MicroscopeAddons(
             xlight,
             dragonfly,
@@ -144,6 +152,8 @@ class MicroscopeAddons:
             fluidics,
             piezo_stage,
             sci_microscopy_led_array,
+            nikon_pfs,
+            nikon_stage,
         )
 
     def __init__(
@@ -158,6 +168,8 @@ class MicroscopeAddons:
         fluidics: Optional[Fluidics] = None,
         piezo_stage: Optional[PiezoStage] = None,
         sci_microscopy_led_array: Optional[SciMicroscopyLEDArray] = None,
+        nikon_pfs=None,
+        nikon_stage: Optional[AbstractStage] = None,
     ):
         self.xlight: Optional[serial_peripherals.XLight] = xlight
         self.dragonfly: Optional[serial_peripherals.Dragonfly] = dragonfly
@@ -169,6 +181,8 @@ class MicroscopeAddons:
         self.fluidics = fluidics
         self.piezo_stage = piezo_stage
         self.sci_microscopy_led_array = sci_microscopy_led_array
+        self.nikon_pfs = nikon_pfs
+        self._nikon_stage: Optional[AbstractStage] = nikon_stage
 
     def prepare_for_use(self):
         """
@@ -221,15 +235,13 @@ class Microscope:
                 raise ValueError("For a cephla stage microscope, you must provide a microcontroller.")
             stage = CephlaStage(low_level_devices.microcontroller, stage_config)
 
-        if control._def.USE_NIKON_PFS:
-            from control.nikon_ti2 import NikonTi2Adapter
-
-            adapter = NikonTi2Adapter(unload_before_init=True)
-            stage, nikon_pfs = adapter.initialize(stage_config=None)
-
         addons = MicroscopeAddons.build_from_global_config(
             stage, low_level_devices.microcontroller, simulated=simulated
         )
+
+        # If Nikon PFS is enabled, use the nikon_stage from addons
+        if addons._nikon_stage is not None:
+            stage = addons._nikon_stage
 
         cam_trigger_log = squid.logging.get_logger("camera hw functions")
 
