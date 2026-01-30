@@ -107,26 +107,28 @@ static const int DISABLED = 2;
 /***************************************************************************************************/
 // Teensy4.1 board v1 def
 
-// illumination
-static const int LASER_405nm = 5;   // to rename
-static const int LASER_488nm = 4;   // to rename
-static const int LASER_561nm = 22;   // to rename
-static const int LASER_638nm = 3;  // to rename
-static const int LASER_730nm = 23;  // to rename
-static const int LASER_INTERLOCK = 1;
+// illumination - accent lasers
+static const int LASER_405nm = 5;
+static const int LASER_488nm = 6;
+static const int LASER_561nm = 7;
+static const int LASER_638nm = 8;
+static const int LASER_730nm = 9;
+
+// illumination - digital patterns
+static const int PATTERN_1 = 1;
+static const int PATTERN_2 = 2;
+static const int PATTERN_3 = 3;
+static const int PATTERN_4 = 4;
 // PWM6 2
 // PWM7 1
 // PWM8 0
 
 // output pins
-//static const int digitial_output_pins = {2,1,6,7,8,9,10,15,24,25} // PWM 6-7, 9-16
-//static const int num_digital_pins = 10;
-// pin 7,8 (PWM 10, 11) may be used for UART, pin 24,25 (PWM 15, 16) may be used for UART
-static const int num_digital_pins = 6;
-static const int digitial_output_pins[num_digital_pins] = {2, 1, 6, 9, 10, 15}; // PWM 6-7, 9, 12-14
+static const int num_digital_pins = 7;
+static const int digitial_output_pins[num_digital_pins] = {22, 23, 29, 14, 17, 15, 24}; // remapped from old pins
 
 // camera trigger
-static const int camera_trigger_pins[] = {29, 30, 31, 32, 16, 28}; // trigger 1-6
+static const int camera_trigger_pins[] = {10, 30, 31, 32, 16, 28}; // trigger 1-6 (trigger 1 remapped to pin 10)
 
 // motors
 const uint8_t pin_TMC4361_CS[4] = {41, 36, 35, 34};
@@ -410,6 +412,10 @@ static const int ILLUMINATION_SOURCE_488NM = 12;
 static const int ILLUMINATION_SOURCE_638NM = 13;
 static const int ILLUMINATION_SOURCE_561NM = 14;
 static const int ILLUMINATION_SOURCE_730NM = 15;
+static const int ILLUMINATION_SOURCE_PATTERN_1 = 21;
+static const int ILLUMINATION_SOURCE_PATTERN_2 = 22;
+static const int ILLUMINATION_SOURCE_PATTERN_3 = 23;
+static const int ILLUMINATION_SOURCE_PATTERN_4 = 24;
 
 #define NUM_LEDS DOTSTAR_NUM_LEDS
 #define LED_MATRIX_DATA_PIN 26
@@ -462,24 +468,31 @@ void turn_on_illumination()
     case ILLUMINATION_SOURCE_LED_EXTERNAL_FET:
       break;
     case ILLUMINATION_SOURCE_405NM:
-      if(digitalRead(LASER_INTERLOCK) == LOW)
-        digitalWrite(LASER_405nm, HIGH);
+      digitalWrite(LASER_405nm, HIGH);
       break;
     case ILLUMINATION_SOURCE_488NM:
-      if(digitalRead(LASER_INTERLOCK) == LOW)
-        digitalWrite(LASER_488nm, HIGH);
+      digitalWrite(LASER_488nm, HIGH);
       break;
     case ILLUMINATION_SOURCE_638NM:
-      if(digitalRead(LASER_INTERLOCK) == LOW)
-        digitalWrite(LASER_638nm, HIGH);
+      digitalWrite(LASER_638nm, HIGH);
       break;
     case ILLUMINATION_SOURCE_561NM:
-      if(digitalRead(LASER_INTERLOCK) == LOW)
-        digitalWrite(LASER_561nm, HIGH);
+      digitalWrite(LASER_561nm, HIGH);
       break;
     case ILLUMINATION_SOURCE_730NM:
-      if(digitalRead(LASER_INTERLOCK) == LOW)
-        digitalWrite(LASER_730nm, HIGH);
+      digitalWrite(LASER_730nm, HIGH);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_1:
+      digitalWrite(PATTERN_1, HIGH);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_2:
+      digitalWrite(PATTERN_2, HIGH);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_3:
+      digitalWrite(PATTERN_3, HIGH);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_4:
+      digitalWrite(PATTERN_4, HIGH);
       break;
   }
 }
@@ -531,6 +544,18 @@ void turn_off_illumination()
       break;
     case ILLUMINATION_SOURCE_730NM:
       digitalWrite(LASER_730nm, LOW);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_1:
+      digitalWrite(PATTERN_1, LOW);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_2:
+      digitalWrite(PATTERN_2, LOW);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_3:
+      digitalWrite(PATTERN_3, LOW);
+      break;
+    case ILLUMINATION_SOURCE_PATTERN_4:
+      digitalWrite(PATTERN_4, LOW);
       break;
   }
   illumination_is_on = false;
@@ -630,9 +655,6 @@ void setup() {
   // power good pin
   pinMode(pin_PG, INPUT_PULLUP);
 
-  // laser safety interlock
-  pinMode(LASER_INTERLOCK, INPUT_PULLUP);
-
   // camera trigger pins
   for (int i = 0; i < 6; i++)
   {
@@ -655,6 +677,19 @@ void setup() {
 
   pinMode(LASER_730nm, OUTPUT);
   digitalWrite(LASER_730nm, LOW);
+
+  // pattern illumination pins
+  pinMode(PATTERN_1, OUTPUT);
+  digitalWrite(PATTERN_1, LOW);
+
+  pinMode(PATTERN_2, OUTPUT);
+  digitalWrite(PATTERN_2, LOW);
+
+  pinMode(PATTERN_3, OUTPUT);
+  digitalWrite(PATTERN_3, LOW);
+
+  pinMode(PATTERN_4, OUTPUT);
+  digitalWrite(PATTERN_4, LOW);
 
   for (int i = 0; i < num_digital_pins; i++)
   {
