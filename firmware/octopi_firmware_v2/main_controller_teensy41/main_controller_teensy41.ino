@@ -115,7 +115,7 @@ static const int LASER_638nm = 8;
 static const int LASER_730nm = 9;
 
 // illumination - digital patterns
-static const int PATTERN_1 = 1;
+static const int PATTERN_1 = 19;
 static const int PATTERN_2 = 2;
 static const int PATTERN_3 = 3;
 static const int PATTERN_4 = 4;
@@ -124,8 +124,8 @@ static const int PATTERN_4 = 4;
 // PWM8 0
 
 // output pins
-static const int num_digital_pins = 7;
-static const int digitial_output_pins[num_digital_pins] = {22, 23, 29, 14, 17, 15, 24}; // remapped from old pins
+static const int num_digital_pins = 8;
+static const int digitial_output_pins[num_digital_pins] = {1, 22, 23, 29, 14, 17, 15, 24}; // remapped from old pins
 
 // camera trigger
 static const int camera_trigger_pins[] = {10, 30, 31, 32, 16, 28}; // trigger 1-6 (trigger 1 remapped to pin 10)
@@ -563,6 +563,12 @@ void turn_off_illumination()
 
 void set_illumination(int source, uint16_t intensity)
 {
+  bool was_on = illumination_is_on;
+
+  // turn off previous source first if illumination is on
+  if (was_on)
+    turn_off_illumination();
+
   illumination_source = source;
   illumination_intensity = intensity * illumination_intensity_factor;
   switch (source)
@@ -583,18 +589,24 @@ void set_illumination(int source, uint16_t intensity)
       set_DAC8050x_output(4, illumination_intensity);
       break;
   }
-  if (illumination_is_on)
-    turn_on_illumination(); //update the illumination
+  if (was_on)
+    turn_on_illumination();
 }
 
 void set_illumination_led_matrix(int source, uint8_t r, uint8_t g, uint8_t b)
 {
+  bool was_on = illumination_is_on;
+
+  if (was_on)
+    turn_off_illumination();  // turn off previous source first
+
   illumination_source = source;
   led_matrix_r = r;
   led_matrix_g = g;
   led_matrix_b = b;
-  if (illumination_is_on)
-    turn_on_illumination(); //update the illumination
+
+  if (was_on)
+    turn_on_illumination();
 }
 
 void ISR_strobeTimer()

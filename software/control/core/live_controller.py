@@ -52,7 +52,7 @@ class LiveController:
 
     # illumination control
     def turn_on_illumination(self):
-        if not "LED matrix" in self.currentConfiguration.name:
+        if not "LED matrix" in self.currentConfiguration.name and not "PATTERN" in self.currentConfiguration.name:
             self.microscope.illumination_controller.turn_on_illumination(
                 int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             )
@@ -64,7 +64,7 @@ class LiveController:
         self.illumination_on = True
 
     def turn_off_illumination(self):
-        if not "LED matrix" in self.currentConfiguration.name:
+        if not "LED matrix" in self.currentConfiguration.name and not "PATTERN" in self.currentConfiguration.name:
             self.microscope.illumination_controller.turn_off_illumination(
                 int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             )
@@ -126,8 +126,9 @@ class LiveController:
                         g=(intensity / 100) * LED_MATRIX_G_FACTOR,
                         b=(intensity / 100) * LED_MATRIX_B_FACTOR,
                     )
+        elif illumination_source >= 21 and illumination_source <= 24:
+            self.microscope.low_level_drivers.microcontroller.set_illumination(illumination_source, intensity)
         else:
-            # update illumination
             wavelength = int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             self.microscope.illumination_controller.set_intensity(wavelength, intensity)
             if self.microscope.addons.nl5 and NL5_USE_DOUT and "Fluorescence" in self.currentConfiguration.name:
