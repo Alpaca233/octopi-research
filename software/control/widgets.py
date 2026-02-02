@@ -9054,6 +9054,9 @@ class MultiPointWithFluidicsWidget(QFrame):
             self.multipointController.run_acquisition()
         else:
             self.multipointController.request_abort_aquisition()
+            # Also stop fluidics operations
+            if self.multipointController.fluidics:
+                self.multipointController.fluidics.emergency_stop()
 
     def set_saving_dir(self):
         """Open dialog to set saving directory"""
@@ -9422,6 +9425,9 @@ class FluidicsWidget(QWidget):
         self.status_text.setReadOnly(True)
         status_layout.addWidget(self.status_text)
 
+        self.btn_save_log = QPushButton("Save Log")
+        status_layout.addWidget(self.btn_save_log)
+
         status_group.setLayout(status_layout)
         left_panel.addWidget(status_group)
 
@@ -9458,6 +9464,7 @@ class FluidicsWidget(QWidget):
             self.btn_manual_flow.clicked.connect(self.start_manual_flow)
             self.btn_empty_syringe_pump.clicked.connect(self.empty_syringe_pump)
         self.btn_emergency_stop.clicked.connect(self.emergency_stop)
+        self.btn_save_log.clicked.connect(self.save_log)
 
         self.enable_controls(False)
         self.btn_emergency_stop.setEnabled(False)
@@ -9632,6 +9639,9 @@ class FluidicsWidget(QWidget):
         if not self.is_open_chamber:
             self.btn_manual_flow.setEnabled(enabled)
             self.btn_empty_syringe_pump.setEnabled(enabled)
+        # Enable/disable sequence table editing
+        if self.sequences_table.model():
+            self.sequences_table.model().set_editable(enabled)
 
     def log_status(self, message):
         current_time = QDateTime.currentDateTime().toString("hh:mm:ss")
@@ -9642,9 +9652,22 @@ class FluidicsWidget(QWidget):
         # Also log to console
         self._log.info(message)
 
+    def save_log(self):
+        """Save the log content to a file"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Fluidics Log", "", "Text Files (*.txt);;All Files (*)"
+        )
+        if file_path:
+            try:
+                with open(file_path, "w") as f:
+                    f.write(self.status_text.toPlainText())
+                self.log_status(f"Log saved to {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save log: {str(e)}")
+
 
 class PandasTableModel(QAbstractTableModel):
-    """Model for displaying pandas DataFrame in a QTableView"""
+    """Model for displaying and editing pandas DataFrame in a QTableView"""
 
     def __init__(self, data, port_names=None):
         super().__init__()
@@ -9660,6 +9683,8 @@ class PandasTableModel(QAbstractTableModel):
             "incubation_time": "Incubation (min)",
             "repeat": "Repeat",
         }
+        self._editable_columns = ["flow_rate", "volume", "incubation_time", "repeat"]
+        self._editable = True  # Can be disabled during acquisition
 
     def rowCount(self, parent=None):
         return len(self._data)
@@ -9668,16 +9693,22 @@ class PandasTableModel(QAbstractTableModel):
         return len(self._data.columns)
 
     def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
+        if role in (Qt.DisplayRole, Qt.EditRole):
             value = self._data.iloc[index.row(), index.column()]
             if pd.isna(value):
-                return ""
+                return "" if role == Qt.DisplayRole else None
 
-            # Map port numbers to names for specific columns
             column_name = self._data.columns[index.column()]
+
+            # For EditRole, return raw value for editing
+            if role == Qt.EditRole:
+                if column_name in self._editable_columns:
+                    return int(value) if not pd.isna(value) else 0
+                return str(value)
+
+            # For DisplayRole, map port numbers to names
             if column_name in ["fluidic_port", "fill_tubing_with"] and self._port_names:
                 try:
-                    # Convert value to integer and get corresponding name
                     port_num = int(value)
                     if 1 <= port_num <= len(self._port_names):
                         return self._port_names[port_num - 1]
@@ -9705,6 +9736,35 @@ class PandasTableModel(QAbstractTableModel):
     def set_current_row(self, row_index):
         self._current_row = row_index
         self.dataChanged.emit(self.index(0, 0), self.index(self.rowCount() - 1, self.columnCount() - 1))
+
+    def flags(self, index):
+        base_flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        if not self._editable:
+            return base_flags
+        column_name = self._data.columns[index.column()]
+        # Skip Imaging rows for editing
+        if self._data.iloc[index.row()]["sequence_name"] == "Imaging":
+            return base_flags
+        if column_name in self._editable_columns:
+            return base_flags | Qt.ItemIsEditable
+        return base_flags
+
+    def set_editable(self, editable):
+        """Enable or disable editing of the table."""
+        self._editable = editable
+
+    def setData(self, index, value, role=Qt.EditRole):
+        if role != Qt.EditRole or not self._editable:
+            return False
+        column_name = self._data.columns[index.column()]
+        if column_name not in self._editable_columns:
+            return False
+        try:
+            self._data.iloc[index.row(), index.column()] = int(value)
+            self.dataChanged.emit(index, index)
+            return True
+        except (ValueError, TypeError):
+            return False
 
 
 class FocusMapWidget(QFrame):
