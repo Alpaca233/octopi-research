@@ -436,6 +436,10 @@ class MultiPointWorker:
                     # For MERFISH, before imaging, run the first 3 sequences (Add probe, wash buffer, imaging buffer)
                     self.fluidics.run_before_imaging()
                     self.fluidics.wait_for_completion()
+                    # Check for abort after fluidics completes (user may have stopped during fluidics)
+                    if self.abort_requested_fn():
+                        self._log.debug("Abort requested after fluidics, skipping imaging")
+                        break
 
                 with self._timing.get_timer("run_single_time_point"):
                     self.run_single_time_point()
