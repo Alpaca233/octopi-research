@@ -9382,35 +9382,37 @@ class FluidicsWidget(QWidget):
         fluidics_control_group.setLayout(fluidics_control_layout)
         left_panel.addWidget(fluidics_control_group)
 
-        # Manual Control panel
-        manual_control_group = QGroupBox("Manual Control")
-        manual_control_layout = QVBoxLayout()
+        # Manual Control panel (MERFISH only, not for Open Chamber)
+        self.is_open_chamber = self.fluidics.config.get("application") == "Open Chamber"
+        if not self.is_open_chamber:
+            manual_control_group = QGroupBox("Manual Control")
+            manual_control_layout = QVBoxLayout()
 
-        # First row - Port, Flow Rate, Volume, Flow button
-        manual_row1 = QHBoxLayout()
-        manual_row1.addWidget(QLabel("Port"))
-        self.manual_port_combo = QComboBox()
-        self.manual_port_combo.addItems(self.fluidics.available_port_names)
-        manual_row1.addWidget(self.manual_port_combo)
-        manual_row1.addWidget(QLabel("Flow Rate (µL/min)"))
-        self.txt_manual_flow_rate = QLineEdit()
-        self.txt_manual_flow_rate.setText("500")
-        manual_row1.addWidget(self.txt_manual_flow_rate)
-        manual_row1.addWidget(QLabel("Volume (µL)"))
-        self.txt_manual_volume = QLineEdit()
-        manual_row1.addWidget(self.txt_manual_volume)
-        self.btn_manual_flow = QPushButton("Flow")
-        manual_row1.addWidget(self.btn_manual_flow)
-        manual_control_layout.addLayout(manual_row1)
+            # First row - Port, Flow Rate, Volume, Flow button
+            manual_row1 = QHBoxLayout()
+            manual_row1.addWidget(QLabel("Port"))
+            self.manual_port_combo = QComboBox()
+            self.manual_port_combo.addItems(self.fluidics.available_port_names)
+            manual_row1.addWidget(self.manual_port_combo)
+            manual_row1.addWidget(QLabel("Flow Rate (µL/min)"))
+            self.txt_manual_flow_rate = QLineEdit()
+            self.txt_manual_flow_rate.setText("500")
+            manual_row1.addWidget(self.txt_manual_flow_rate)
+            manual_row1.addWidget(QLabel("Volume (µL)"))
+            self.txt_manual_volume = QLineEdit()
+            manual_row1.addWidget(self.txt_manual_volume)
+            self.btn_manual_flow = QPushButton("Flow")
+            manual_row1.addWidget(self.btn_manual_flow)
+            manual_control_layout.addLayout(manual_row1)
 
-        # Second row - Empty Syringe Pump button
-        manual_row2 = QHBoxLayout()
-        self.btn_empty_syringe_pump = QPushButton("Empty Syringe Pump To Waste")
-        manual_row2.addWidget(self.btn_empty_syringe_pump)
-        manual_control_layout.addLayout(manual_row2)
+            # Second row - Empty Syringe Pump button
+            manual_row2 = QHBoxLayout()
+            self.btn_empty_syringe_pump = QPushButton("Empty Syringe Pump To Waste")
+            manual_row2.addWidget(self.btn_empty_syringe_pump)
+            manual_control_layout.addLayout(manual_row2)
 
-        manual_control_group.setLayout(manual_control_layout)
-        left_panel.addWidget(manual_control_group)
+            manual_control_group.setLayout(manual_control_layout)
+            left_panel.addWidget(manual_control_group)
 
         # Status panel
         status_group = QGroupBox("Status")
@@ -9452,8 +9454,9 @@ class FluidicsWidget(QWidget):
         self.btn_load_sequences.clicked.connect(self.load_sequences)
         self.btn_prime_start.clicked.connect(self.start_prime)
         self.btn_cleanup_start.clicked.connect(self.start_cleanup)
-        self.btn_manual_flow.clicked.connect(self.start_manual_flow)
-        self.btn_empty_syringe_pump.clicked.connect(self.empty_syringe_pump)
+        if not self.is_open_chamber:
+            self.btn_manual_flow.clicked.connect(self.start_manual_flow)
+            self.btn_empty_syringe_pump.clicked.connect(self.empty_syringe_pump)
         self.btn_emergency_stop.clicked.connect(self.emergency_stop)
 
         self.enable_controls(False)
@@ -9626,8 +9629,9 @@ class FluidicsWidget(QWidget):
         self.btn_load_sequences.setEnabled(enabled)
         self.btn_prime_start.setEnabled(enabled)
         self.btn_cleanup_start.setEnabled(enabled)
-        self.btn_manual_flow.setEnabled(enabled)
-        self.btn_empty_syringe_pump.setEnabled(enabled)
+        if not self.is_open_chamber:
+            self.btn_manual_flow.setEnabled(enabled)
+            self.btn_empty_syringe_pump.setEnabled(enabled)
 
     def log_status(self, message):
         current_time = QDateTime.currentDateTime().toString("hh:mm:ss")

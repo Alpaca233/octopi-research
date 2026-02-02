@@ -163,13 +163,16 @@ class Fluidics:
         return self.sequences.copy()
 
     def _validate_sequences(self):
-        valid_sequence_names = ["Imaging", "Priming", "Clean Up"]
-        for idx, sequence_name in enumerate(self.sequences["sequence_name"]):
-            if sequence_name not in valid_sequence_names and not sequence_name.startswith("Flow "):
-                raise ValueError(
-                    f"Invalid sequence name at row {idx+1}: '{sequence_name}'. "
-                    f"Must be one of {valid_sequence_names} or start with 'Flow '"
-                )
+        is_open_chamber = self.config.get("application") == "Open Chamber"
+        valid_names = ["Imaging", "Priming", "Clean Up"]
+        if is_open_chamber:
+            valid_names += ["Add Reagent", "Clear Tubings and Add Reagent", "Wash with Constant Flow"]
+
+        for idx, name in enumerate(self.sequences["sequence_name"]):
+            is_valid = name in valid_names or (not is_open_chamber and name.startswith("Flow "))
+            if not is_valid:
+                hint = f"Must be one of {valid_names}" + ("" if is_open_chamber else " or start with 'Flow '")
+                raise ValueError(f"Invalid sequence name at row {idx+1}: '{name}'. {hint}")
 
         imaging_count = (self.sequences["sequence_name"] == "Imaging").sum()
         if imaging_count == 0:
