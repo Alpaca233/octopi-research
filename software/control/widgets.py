@@ -12981,6 +12981,9 @@ class WellplateCalibration(QDialog):
         # Initially allow click-to-move and hide the joystick controls
         self.clickToMoveCheckbox.setChecked(True)
         self.toggleVirtualJoystick(False)
+        # Fix the dialog height to prevent resizing when toggling UI elements
+        self.adjustSize()
+        self.setMinimumHeight(self.height())
 
     def initUI(self):
         layout = QHBoxLayout(self)  # Change to QHBoxLayout to have two columns
@@ -13358,7 +13361,7 @@ class WellplateCalibration(QDialog):
         # Auto-select center point method for 384 and 1536 well plates because their
         # small well diameters make it difficult to reliably set 3 distinct points
         # on the well edge under a microscope
-        if selected_format in (384, 1536):
+        if selected_format in ("384 well plate", "1536 well plate"):
             self.center_point_radio.setChecked(True)
         else:
             self.edge_points_radio.setChecked(True)
@@ -13426,17 +13429,13 @@ class WellplateCalibration(QDialog):
         """
         if self.center_point_radio.isChecked():
             if self.center_point is None:
-                QMessageBox.warning(
-                    self, "Incomplete Information", "Please set the center point before calibrating."
-                )
+                QMessageBox.warning(self, "Incomplete Information", "Please set the center point before calibrating.")
                 return None
             a1_x_mm, a1_y_mm = self.center_point
             well_size_mm = self.center_well_size_input.value()
         else:
             if not all(self.corners):
-                QMessageBox.warning(
-                    self, "Incomplete Information", "Please set 3 corner points before calibrating."
-                )
+                QMessageBox.warning(self, "Incomplete Information", "Please set 3 corner points before calibrating.")
                 return None
             center, radius = self.calculate_circle(self.corners)
             well_size_mm = radius * 2
@@ -13589,11 +13588,13 @@ class WellplateCalibration(QDialog):
         )
         print(f"NEW: 'a1_x_mm': {a1_x_mm}, 'a1_y_mm': {a1_y_mm}, 'well_size_mm': {well_size_mm}")
 
-        WELLPLATE_FORMAT_SETTINGS[selected_format].update({
-            "a1_x_mm": a1_x_mm,
-            "a1_y_mm": a1_y_mm,
-            "well_size_mm": well_size_mm,
-        })
+        WELLPLATE_FORMAT_SETTINGS[selected_format].update(
+            {
+                "a1_x_mm": a1_x_mm,
+                "a1_y_mm": a1_y_mm,
+                "well_size_mm": well_size_mm,
+            }
+        )
 
         self.wellplateFormatWidget.save_formats_to_csv()
         self.wellplateFormatWidget.setWellplateSettings(selected_format)
