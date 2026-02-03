@@ -9506,13 +9506,15 @@ class FluidicsWidget(QWidget):
         if file_path:
             self.log_status(f"Loading sequences from {file_path}")
             try:
-                self.sequence_df = self.fluidics.load_sequences(file_path)
-                self.sequence_df.drop("include", axis=1, inplace=True)
-                model = PandasTableModel(self.sequence_df, self.fluidics.available_port_names)
+                self.fluidics.load_sequences(file_path)
+                model = PandasTableModel(self.fluidics.sequences, self.fluidics.available_port_names)
                 self.sequences_table.setModel(model)
+                # Hide the "include" column
+                if "include" in self.fluidics.sequences.columns:
+                    self.sequences_table.hideColumn(self.fluidics.sequences.columns.get_loc("include"))
                 self.sequences_table.resizeColumnsToContents()
                 self.sequences_table.horizontalHeader().setStretchLastSection(True)
-                self.log_status(f"Loaded {len(self.sequence_df)} sequences")
+                self.log_status(f"Loaded {len(self.fluidics.sequences)} sequences")
             except Exception as e:
                 self.log_status(f"Error loading sequences: {str(e)}")
 
@@ -9616,7 +9618,7 @@ class FluidicsWidget(QWidget):
 
     def update_progress(self, idx, seq_num, status):
         self.sequences_table.model().set_current_row(idx)
-        self.log_message_signal.emit(f"Sequence {self.sequence_df.iloc[idx]['sequence_name']} {status}")
+        self.log_message_signal.emit(f"Sequence {self.fluidics.sequences.iloc[idx]['sequence_name']} {status}")
 
     def on_finish(self, status=None):
         self.enable_controls(True)
@@ -9640,8 +9642,9 @@ class FluidicsWidget(QWidget):
             self.btn_manual_flow.setEnabled(enabled)
             self.btn_empty_syringe_pump.setEnabled(enabled)
         # Enable/disable sequence table editing
-        if self.sequences_table.model():
-            self.sequences_table.model().set_editable(enabled)
+        model = self.sequences_table.model()
+        if model and hasattr(model, "set_editable"):
+            model.set_editable(enabled)
 
     def log_status(self, message):
         current_time = QDateTime.currentDateTime().toString("hh:mm:ss")
@@ -9654,9 +9657,7 @@ class FluidicsWidget(QWidget):
 
     def save_log(self):
         """Save the log content to a file"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Fluidics Log", "", "Text Files (*.txt);;All Files (*)"
-        )
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Fluidics Log", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
             try:
                 with open(file_path, "w") as f:
@@ -9693,6 +9694,8 @@ class PandasTableModel(QAbstractTableModel):
         return len(self._data.columns)
 
     def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
         if role in (Qt.DisplayRole, Qt.EditRole):
             value = self._data.iloc[index.row(), index.column()]
             if pd.isna(value):
@@ -9703,7 +9706,7 @@ class PandasTableModel(QAbstractTableModel):
             # For EditRole, return raw value for editing
             if role == Qt.EditRole:
                 if column_name in self._editable_columns:
-                    return int(value) if not pd.isna(value) else 0
+                    return int(value)
                 return str(value)
 
             # For DisplayRole, map port numbers to names
@@ -9760,7 +9763,16 @@ class PandasTableModel(QAbstractTableModel):
         if column_name not in self._editable_columns:
             return False
         try:
-            self._data.iloc[index.row(), index.column()] = int(value)
+            int_value = int(value)
+            # Validate based on column constraints
+            if column_name == "flow_rate" and int_value <= 0:
+                return False
+            if column_name == "volume" and int_value <= 0:
+                return False
+            if column_name in ["incubation_time", "repeat"] and int_value < 0:
+                return False
+
+            self._data.iloc[index.row(), index.column()] = int_value
             self.dataChanged.emit(index, index)
             return True
         except (ValueError, TypeError):

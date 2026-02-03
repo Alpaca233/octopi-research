@@ -298,8 +298,10 @@ class Fluidics:
 
     def emergency_stop(self):
         """Stop syringe pump operation immediately"""
-        self.syringe_pump.abort()
-        self.worker.abort()
+        if self.syringe_pump:
+            self.syringe_pump.abort()
+        if self.worker:
+            self.worker.abort()
         self.emergency_stop_called = True
 
     def reset_abort(self):
