@@ -9173,6 +9173,9 @@ class MultiPointWithFluidicsWidget(QFrame):
             self.multipointController.run_acquisition()
         else:
             self.multipointController.request_abort_aquisition()
+            # Also stop fluidics operations
+            if self.multipointController.fluidics:
+                self.multipointController.fluidics.emergency_stop()
 
     def set_saving_dir(self):
         """Open dialog to set saving directory"""
@@ -9501,35 +9504,37 @@ class FluidicsWidget(QWidget):
         fluidics_control_group.setLayout(fluidics_control_layout)
         left_panel.addWidget(fluidics_control_group)
 
-        # Manual Control panel
-        manual_control_group = QGroupBox("Manual Control")
-        manual_control_layout = QVBoxLayout()
+        # Manual Control panel (MERFISH only, not for Open Chamber)
+        self.is_open_chamber = self.fluidics.config.get("application") == "Open Chamber"
+        if not self.is_open_chamber:
+            manual_control_group = QGroupBox("Manual Control")
+            manual_control_layout = QVBoxLayout()
 
-        # First row - Port, Flow Rate, Volume, Flow button
-        manual_row1 = QHBoxLayout()
-        manual_row1.addWidget(QLabel("Port"))
-        self.manual_port_combo = QComboBox()
-        self.manual_port_combo.addItems(self.fluidics.available_port_names)
-        manual_row1.addWidget(self.manual_port_combo)
-        manual_row1.addWidget(QLabel("Flow Rate (µL/min)"))
-        self.txt_manual_flow_rate = QLineEdit()
-        self.txt_manual_flow_rate.setText("500")
-        manual_row1.addWidget(self.txt_manual_flow_rate)
-        manual_row1.addWidget(QLabel("Volume (µL)"))
-        self.txt_manual_volume = QLineEdit()
-        manual_row1.addWidget(self.txt_manual_volume)
-        self.btn_manual_flow = QPushButton("Flow")
-        manual_row1.addWidget(self.btn_manual_flow)
-        manual_control_layout.addLayout(manual_row1)
+            # First row - Port, Flow Rate, Volume, Flow button
+            manual_row1 = QHBoxLayout()
+            manual_row1.addWidget(QLabel("Port"))
+            self.manual_port_combo = QComboBox()
+            self.manual_port_combo.addItems(self.fluidics.available_port_names)
+            manual_row1.addWidget(self.manual_port_combo)
+            manual_row1.addWidget(QLabel("Flow Rate (µL/min)"))
+            self.txt_manual_flow_rate = QLineEdit()
+            self.txt_manual_flow_rate.setText("500")
+            manual_row1.addWidget(self.txt_manual_flow_rate)
+            manual_row1.addWidget(QLabel("Volume (µL)"))
+            self.txt_manual_volume = QLineEdit()
+            manual_row1.addWidget(self.txt_manual_volume)
+            self.btn_manual_flow = QPushButton("Flow")
+            manual_row1.addWidget(self.btn_manual_flow)
+            manual_control_layout.addLayout(manual_row1)
 
-        # Second row - Empty Syringe Pump button
-        manual_row2 = QHBoxLayout()
-        self.btn_empty_syringe_pump = QPushButton("Empty Syringe Pump To Waste")
-        manual_row2.addWidget(self.btn_empty_syringe_pump)
-        manual_control_layout.addLayout(manual_row2)
+            # Second row - Empty Syringe Pump button
+            manual_row2 = QHBoxLayout()
+            self.btn_empty_syringe_pump = QPushButton("Empty Syringe Pump To Waste")
+            manual_row2.addWidget(self.btn_empty_syringe_pump)
+            manual_control_layout.addLayout(manual_row2)
 
-        manual_control_group.setLayout(manual_control_layout)
-        left_panel.addWidget(manual_control_group)
+            manual_control_group.setLayout(manual_control_layout)
+            left_panel.addWidget(manual_control_group)
 
         # Status panel
         status_group = QGroupBox("Status")
@@ -9538,6 +9543,9 @@ class FluidicsWidget(QWidget):
         self.status_text = QTextEdit()
         self.status_text.setReadOnly(True)
         status_layout.addWidget(self.status_text)
+
+        self.btn_save_log = QPushButton("Save Log")
+        status_layout.addWidget(self.btn_save_log)
 
         status_group.setLayout(status_layout)
         left_panel.addWidget(status_group)
@@ -9571,9 +9579,11 @@ class FluidicsWidget(QWidget):
         self.btn_load_sequences.clicked.connect(self.load_sequences)
         self.btn_prime_start.clicked.connect(self.start_prime)
         self.btn_cleanup_start.clicked.connect(self.start_cleanup)
-        self.btn_manual_flow.clicked.connect(self.start_manual_flow)
-        self.btn_empty_syringe_pump.clicked.connect(self.empty_syringe_pump)
+        if not self.is_open_chamber:
+            self.btn_manual_flow.clicked.connect(self.start_manual_flow)
+            self.btn_empty_syringe_pump.clicked.connect(self.empty_syringe_pump)
         self.btn_emergency_stop.clicked.connect(self.emergency_stop)
+        self.btn_save_log.clicked.connect(self.save_log)
 
         self.enable_controls(False)
         self.btn_emergency_stop.setEnabled(False)
@@ -9615,13 +9625,15 @@ class FluidicsWidget(QWidget):
         if file_path:
             self.log_status(f"Loading sequences from {file_path}")
             try:
-                self.sequence_df = self.fluidics.load_sequences(file_path)
-                self.sequence_df.drop("include", axis=1, inplace=True)
-                model = PandasTableModel(self.sequence_df, self.fluidics.available_port_names)
+                self.fluidics.load_sequences(file_path)
+                model = PandasTableModel(self.fluidics.sequences, self.fluidics.available_port_names)
                 self.sequences_table.setModel(model)
+                # Hide the "include" column
+                if "include" in self.fluidics.sequences.columns:
+                    self.sequences_table.hideColumn(self.fluidics.sequences.columns.get_loc("include"))
                 self.sequences_table.resizeColumnsToContents()
                 self.sequences_table.horizontalHeader().setStretchLastSection(True)
-                self.log_status(f"Loaded {len(self.sequence_df)} sequences")
+                self.log_status(f"Loaded {len(self.fluidics.sequences)} sequences")
             except Exception as e:
                 self.log_status(f"Error loading sequences: {str(e)}")
 
@@ -9725,14 +9737,13 @@ class FluidicsWidget(QWidget):
 
     def update_progress(self, idx, seq_num, status):
         self.sequences_table.model().set_current_row(idx)
-        self.log_message_signal.emit(f"Sequence {self.sequence_df.iloc[idx]['sequence_name']} {status}")
+        self.log_message_signal.emit(f"Sequence {self.fluidics.sequences.iloc[idx]['sequence_name']} {status}")
 
     def on_finish(self, status=None):
         self.enable_controls(True)
-        try:
-            self.sequences_table.model().set_current_row(-1)
-        except:
-            pass
+        model = self.sequences_table.model()
+        if model is not None:
+            model.set_current_row(-1)
         if status is None:
             status = "Sequence section completed"
         self.fluidics.reset_abort()
@@ -9745,8 +9756,19 @@ class FluidicsWidget(QWidget):
         self.btn_load_sequences.setEnabled(enabled)
         self.btn_prime_start.setEnabled(enabled)
         self.btn_cleanup_start.setEnabled(enabled)
-        self.btn_manual_flow.setEnabled(enabled)
-        self.btn_empty_syringe_pump.setEnabled(enabled)
+        if not self.is_open_chamber:
+            self.btn_manual_flow.setEnabled(enabled)
+            self.btn_empty_syringe_pump.setEnabled(enabled)
+        # Enable/disable sequence table editing
+        model = self.sequences_table.model()
+        if model and hasattr(model, "set_editable"):
+            model.set_editable(enabled)
+
+    def set_acquisition_running(self, running: bool):
+        """Disable table editing when acquisition is running."""
+        model = self.sequences_table.model()
+        if model and hasattr(model, "set_editable"):
+            model.set_editable(not running)
 
     def log_status(self, message):
         current_time = QDateTime.currentDateTime().toString("hh:mm:ss")
@@ -9757,9 +9779,20 @@ class FluidicsWidget(QWidget):
         # Also log to console
         self._log.info(message)
 
+    def save_log(self):
+        """Save the log content to a file"""
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Fluidics Log", "", "Text Files (*.txt);;All Files (*)")
+        if file_path:
+            try:
+                with open(file_path, "w") as f:
+                    f.write(self.status_text.toPlainText())
+                self.log_status(f"Log saved to {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save log: {str(e)}")
+
 
 class PandasTableModel(QAbstractTableModel):
-    """Model for displaying pandas DataFrame in a QTableView"""
+    """Model for displaying and editing pandas DataFrame in a QTableView"""
 
     def __init__(self, data, port_names=None):
         super().__init__()
@@ -9775,6 +9808,8 @@ class PandasTableModel(QAbstractTableModel):
             "incubation_time": "Incubation (min)",
             "repeat": "Repeat",
         }
+        self._editable_columns = ["flow_rate", "volume", "incubation_time", "repeat"]
+        self._editable = True  # Can be disabled during acquisition
 
     def rowCount(self, parent=None):
         return len(self._data)
@@ -9783,31 +9818,42 @@ class PandasTableModel(QAbstractTableModel):
         return len(self._data.columns)
 
     def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
-            value = self._data.iloc[index.row(), index.column()]
-            if pd.isna(value):
-                return ""
+        if not index.isValid():
+            return None
 
-            # Map port numbers to names for specific columns
-            column_name = self._data.columns[index.column()]
-            if column_name in ["fluidic_port", "fill_tubing_with"] and self._port_names:
-                try:
-                    # Convert value to integer and get corresponding name
-                    port_num = int(value)
-                    if 1 <= port_num <= len(self._port_names):
-                        return self._port_names[port_num - 1]
-                except (ValueError, TypeError):
-                    pass
+        if role == Qt.BackgroundRole:
+            color = QColor(173, 216, 230) if index.row() == self._current_row else QColor(255, 255, 255)
+            return QBrush(color)
 
-            return str(value)
+        if role not in (Qt.DisplayRole, Qt.EditRole):
+            return None
 
-        elif role == Qt.BackgroundRole:
-            # Highlight the current row
-            if index.row() == self._current_row:
-                return QBrush(QColor(173, 216, 230))  # Light blue
-            else:
-                return QBrush(QColor(255, 255, 255))  # White
-        return None
+        value = self._data.iloc[index.row(), index.column()]
+        if pd.isna(value):
+            return "" if role == Qt.DisplayRole else None
+
+        column_name = self._data.columns[index.column()]
+
+        if role == Qt.EditRole:
+            return int(value) if column_name in self._editable_columns else str(value)
+
+        # DisplayRole: map port numbers to names for port columns
+        if column_name in ["fluidic_port", "fill_tubing_with"] and self._port_names:
+            port_name = self._get_port_name(value)
+            if port_name:
+                return port_name
+
+        return str(value)
+
+    def _get_port_name(self, value) -> str:
+        """Return port name for a port number, or empty string if invalid."""
+        try:
+            port_num = int(value)
+            if 1 <= port_num <= len(self._port_names):
+                return self._port_names[port_num - 1]
+        except (ValueError, TypeError):
+            pass
+        return ""
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
@@ -9820,6 +9866,46 @@ class PandasTableModel(QAbstractTableModel):
     def set_current_row(self, row_index):
         self._current_row = row_index
         self.dataChanged.emit(self.index(0, 0), self.index(self.rowCount() - 1, self.columnCount() - 1))
+
+    def flags(self, index):
+        base_flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        if not self._editable:
+            return base_flags
+        column_name = self._data.columns[index.column()]
+        # Skip Imaging rows for editing
+        if self._data.iloc[index.row()]["sequence_name"] == "Imaging":
+            return base_flags
+        if column_name in self._editable_columns:
+            return base_flags | Qt.ItemIsEditable
+        return base_flags
+
+    def set_editable(self, editable):
+        """Enable or disable editing of the table."""
+        self._editable = editable
+
+    def setData(self, index, value, role=Qt.EditRole):
+        if role != Qt.EditRole or not self._editable:
+            return False
+        column_name = self._data.columns[index.column()]
+        if column_name not in self._editable_columns:
+            return False
+        try:
+            int_value = int(value)
+            if not self._is_valid_column_value(column_name, int_value):
+                return False
+            self._data.iloc[index.row(), index.column()] = int_value
+            self.dataChanged.emit(index, index)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def _is_valid_column_value(self, column_name: str, value: int) -> bool:
+        """Check if the value is valid for the given column."""
+        if column_name in ["flow_rate", "volume"]:
+            return value > 0
+        if column_name in ["incubation_time", "repeat"]:
+            return value >= 0
+        return True
 
 
 class FocusMapWidget(QFrame):
