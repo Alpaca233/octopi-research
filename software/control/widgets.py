@@ -13110,8 +13110,8 @@ class WellplateCalibration(QDialog):
         self.calibration_method_group.setLayout(calibration_method_layout)
         left_layout.addWidget(self.calibration_method_group)
 
+        # Only connect one radio button to avoid double-calls (both emit toggled when selection changes)
         self.edge_points_radio.toggled.connect(self.toggle_calibration_method)
-        self.center_point_radio.toggled.connect(self.toggle_calibration_method)
 
         # 3 Edge Points UI
         self.points_widget = QWidget()
@@ -13346,12 +13346,15 @@ class WellplateCalibration(QDialog):
         self.existing_rows_input.setValue(settings.get("rows", 8))
         self.existing_cols_input.setValue(settings.get("cols", 12))
         self.existing_spacing_input.setValue(settings.get("well_spacing_mm", 9.0))
-        self.existing_well_size_input.setValue(settings.get("well_size_mm", 6.0))
 
-        # Also update center point well size input
-        self.center_well_size_input.setValue(settings.get("well_size_mm", 3.0))
+        # Use consistent well size for both inputs
+        well_size = settings.get("well_size_mm", 6.0)
+        self.existing_well_size_input.setValue(well_size)
+        self.center_well_size_input.setValue(well_size)
 
-        # Auto-select center point method for 384 and 1536 well plates
+        # Auto-select center point method for 384 and 1536 well plates because their
+        # small well diameters make it difficult to reliably set 3 distinct points
+        # on the well edge under a microscope
         if selected_format in (384, 1536):
             self.center_point_radio.setChecked(True)
         else:
@@ -13418,55 +13421,75 @@ class WellplateCalibration(QDialog):
             QMessageBox.warning(self, "No Format Selected", "Please select a format to update.")
             return
 
-        # Get the new values
-        new_rows = self.existing_rows_input.value()
-        new_cols = self.existing_cols_input.value()
-        new_spacing = self.existing_spacing_input.value()
-        new_well_size = self.existing_well_size_input.value()
+        try:
+            # Get the new values
+            new_rows = self.existing_rows_input.value()
+            new_cols = self.existing_cols_input.value()
+            new_spacing = self.existing_spacing_input.value()
+            new_well_size = self.existing_well_size_input.value()
 
-        # Get existing settings
-        existing_settings = WELLPLATE_FORMAT_SETTINGS.get(selected_format, {})
+            # Get existing settings
+            existing_settings = WELLPLATE_FORMAT_SETTINGS.get(selected_format)
+            if existing_settings is None:
+                QMessageBox.critical(self, "Update Failed", f"Format '{selected_format}' not found in settings.")
+                return
 
-        # Avoid duplicating "well plate" if already in the name
-        log_name = str(selected_format)
-        if "well plate" not in log_name.lower():
-            log_name = f"{selected_format} well plate"
-        print(f"Updating parameters for {log_name}")
-        print(
-            f"OLD: rows={existing_settings.get('rows')}, cols={existing_settings.get('cols')}, "
-            f"spacing={existing_settings.get('well_spacing_mm')}, well_size={existing_settings.get('well_size_mm')}"
-        )
-        print(f"NEW: rows={new_rows}, cols={new_cols}, spacing={new_spacing}, well_size={new_well_size}")
+            # Avoid duplicating "well plate" if already in the name
+            log_name = str(selected_format)
+            if "well plate" not in log_name.lower():
+                log_name = f"{selected_format} well plate"
+            print(f"Updating parameters for {log_name}")
+            print(
+                f"OLD: rows={existing_settings.get('rows')}, cols={existing_settings.get('cols')}, "
+                f"spacing={existing_settings.get('well_spacing_mm')}, well_size={existing_settings.get('well_size_mm')}"
+            )
+            print(f"NEW: rows={new_rows}, cols={new_cols}, spacing={new_spacing}, well_size={new_well_size}")
 
-        # Update the settings
-        WELLPLATE_FORMAT_SETTINGS[selected_format].update(
-            {
-                "rows": new_rows,
-                "cols": new_cols,
-                "well_spacing_mm": new_spacing,
-                "well_size_mm": new_well_size,
-            }
-        )
+            # Update the settings
+            WELLPLATE_FORMAT_SETTINGS[selected_format].update(
+                {
+                    "rows": new_rows,
+                    "cols": new_cols,
+                    "well_spacing_mm": new_spacing,
+                    "well_size_mm": new_well_size,
+                }
+            )
 
-        # Save and refresh
-        self.wellplateFormatWidget.save_formats_to_csv()
-        self.wellplateFormatWidget.populate_combo_box()
+            # Save and refresh
+            self.wellplateFormatWidget.save_formats_to_csv()
+            self.wellplateFormatWidget.populate_combo_box()
 
-        # Re-select the format
-        index = self.wellplateFormatWidget.comboBox.findData(selected_format)
-        if index >= 0:
-            self.wellplateFormatWidget.comboBox.setCurrentIndex(index)
-        self.wellplateFormatWidget.setWellplateSettings(selected_format)
+            # Re-select the format
+            index = self.wellplateFormatWidget.comboBox.findData(selected_format)
+            if index >= 0:
+                self.wellplateFormatWidget.comboBox.setCurrentIndex(index)
+            self.wellplateFormatWidget.setWellplateSettings(selected_format)
 
-        # Avoid duplicating "well plate" if already in the name
-        display_name = str(selected_format)
-        if "well plate" not in display_name.lower():
-            display_name = f"{selected_format} well plate"
-        QMessageBox.information(
-            self, "Parameters Updated", f"Parameters for '{display_name}' have been updated successfully."
-        )
+            # Avoid duplicating "well plate" if already in the name
+            display_name = str(selected_format)
+            if "well plate" not in display_name.lower():
+                display_name = f"{selected_format} well plate"
+            QMessageBox.information(
+                self, "Parameters Updated", f"Parameters for '{display_name}' have been updated successfully."
+            )
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            QMessageBox.critical(self, "Update Failed", f"An error occurred while updating parameters: {str(e)}")
 
     def calibrate(self):
+        """Execute wellplate calibration based on current settings.
+
+        Supports two modes:
+        - New format: Creates a new custom wellplate format with all parameters
+        - Existing format: Updates position calibration (a1_x_mm, a1_y_mm) and well_size_mm
+
+        Supports two calibration methods:
+        - 3 Edge Points: Calculates well center and diameter from 3 points on well edge
+        - Center Point: Uses directly-specified center position with manual well size
+        """
         try:
             # Determine calibration method
             use_center_point = self.center_point_radio.isChecked()
@@ -13589,7 +13612,21 @@ class WellplateCalibration(QDialog):
             QMessageBox.information(self, "Calibration Successful", success_message)
             self.accept()
 
+        except np.linalg.LinAlgError as e:
+            import traceback
+
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                "Calibration Error",
+                "Unable to calculate well center from the provided points.\n"
+                "The 3 points may be nearly collinear (in a straight line).\n"
+                "Please choose points that are more spread out around the well edge.",
+            )
         except Exception as e:
+            import traceback
+
+            traceback.print_exc()
             QMessageBox.critical(self, "Calibration Error", f"An error occurred during calibration: {str(e)}")
 
     def create_wellplate_image(self, name, format_data, plate_width_mm, plate_height_mm):
