@@ -13060,16 +13060,6 @@ class WellplateCalibration(QDialog):
         self.existing_params_group = QGroupBox("Format Parameters")
         existing_params_layout = QFormLayout()
 
-        self.existing_rows_input = QSpinBox(self)
-        self.existing_rows_input.setKeyboardTracking(False)
-        self.existing_rows_input.setRange(1, 100)
-        existing_params_layout.addRow("# Rows:", self.existing_rows_input)
-
-        self.existing_cols_input = QSpinBox(self)
-        self.existing_cols_input.setKeyboardTracking(False)
-        self.existing_cols_input.setRange(1, 100)
-        existing_params_layout.addRow("# Columns:", self.existing_cols_input)
-
         self.existing_spacing_input = QDoubleSpinBox(self)
         self.existing_spacing_input.setKeyboardTracking(False)
         self.existing_spacing_input.setRange(0.1, 100)
@@ -13348,8 +13338,6 @@ class WellplateCalibration(QDialog):
             return
 
         settings = WELLPLATE_FORMAT_SETTINGS.get(selected_format, {})
-        self.existing_rows_input.setValue(settings.get("rows", 8))
-        self.existing_cols_input.setValue(settings.get("cols", 12))
         self.existing_spacing_input.setValue(settings.get("well_spacing_mm", 9.0))
 
         # Use consistent well size for both inputs
@@ -13450,8 +13438,6 @@ class WellplateCalibration(QDialog):
 
         try:
             # Get the new values
-            new_rows = self.existing_rows_input.value()
-            new_cols = self.existing_cols_input.value()
             new_spacing = self.existing_spacing_input.value()
             new_well_size = self.existing_well_size_input.value()
 
@@ -13463,16 +13449,13 @@ class WellplateCalibration(QDialog):
 
             print(f"Updating parameters for {self._format_display_name(selected_format)}")
             print(
-                f"OLD: rows={existing_settings.get('rows')}, cols={existing_settings.get('cols')}, "
-                f"spacing={existing_settings.get('well_spacing_mm')}, well_size={existing_settings.get('well_size_mm')}"
+                f"OLD: spacing={existing_settings.get('well_spacing_mm')}, well_size={existing_settings.get('well_size_mm')}"
             )
-            print(f"NEW: rows={new_rows}, cols={new_cols}, spacing={new_spacing}, well_size={new_well_size}")
+            print(f"NEW: spacing={new_spacing}, well_size={new_well_size}")
 
             # Update the settings
             WELLPLATE_FORMAT_SETTINGS[selected_format].update(
                 {
-                    "rows": new_rows,
-                    "cols": new_cols,
                     "well_spacing_mm": new_spacing,
                     "well_size_mm": new_well_size,
                 }
