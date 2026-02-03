@@ -12981,9 +12981,8 @@ class WellplateCalibration(QDialog):
         # Initially allow click-to-move and hide the joystick controls
         self.clickToMoveCheckbox.setChecked(True)
         self.toggleVirtualJoystick(False)
-        # Fix the dialog height to prevent resizing when toggling UI elements
-        self.adjustSize()
-        self.setMinimumHeight(self.height())
+        # Set minimum height to accommodate all UI configurations
+        self.setMinimumHeight(700)
 
     def initUI(self):
         layout = QHBoxLayout(self)  # Change to QHBoxLayout to have two columns
@@ -13483,11 +13482,10 @@ class WellplateCalibration(QDialog):
             self.wellplateFormatWidget.save_formats_to_csv()
             self.wellplateFormatWidget.populate_combo_box()
 
-            # Re-select the format
+            # Re-select the format (triggers wellplateChanged which calls setWellplateSettings)
             index = self.wellplateFormatWidget.comboBox.findData(selected_format)
             if index >= 0:
                 self.wellplateFormatWidget.comboBox.setCurrentIndex(index)
-            self.wellplateFormatWidget.setWellplateSettings(selected_format)
 
             QMessageBox.information(
                 self,
@@ -13565,7 +13563,6 @@ class WellplateCalibration(QDialog):
         self.wellplateFormatWidget.add_custom_format(name, new_format)
         self.wellplateFormatWidget.save_formats_to_csv()
         self.create_wellplate_image(name, new_format, plate_width_mm, plate_height_mm)
-        self.wellplateFormatWidget.setWellplateSettings(name)
 
         self._finish_calibration(name, f"New format '{name}' has been successfully created and calibrated.")
 
@@ -13597,7 +13594,6 @@ class WellplateCalibration(QDialog):
         )
 
         self.wellplateFormatWidget.save_formats_to_csv()
-        self.wellplateFormatWidget.setWellplateSettings(selected_format)
 
         self._finish_calibration(selected_format, f"Format '{display_name}' has been successfully recalibrated.")
 
