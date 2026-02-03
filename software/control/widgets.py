@@ -13312,7 +13312,11 @@ class WellplateCalibration(QDialog):
     def populate_existing_formats(self):
         self.existing_format_combo.clear()
         for format_ in WELLPLATE_FORMAT_SETTINGS:
-            self.existing_format_combo.addItem(f"{format_} well plate", format_)
+            # Avoid duplicating "well plate" if already in the name
+            display_name = str(format_)
+            if "well plate" not in display_name.lower():
+                display_name = f"{format_} well plate"
+            self.existing_format_combo.addItem(display_name, format_)
 
     def toggle_input_mode(self):
         if self.new_format_radio.isChecked():
@@ -13423,7 +13427,11 @@ class WellplateCalibration(QDialog):
         # Get existing settings
         existing_settings = WELLPLATE_FORMAT_SETTINGS.get(selected_format, {})
 
-        print(f"Updating parameters for {selected_format} well plate")
+        # Avoid duplicating "well plate" if already in the name
+        log_name = str(selected_format)
+        if "well plate" not in log_name.lower():
+            log_name = f"{selected_format} well plate"
+        print(f"Updating parameters for {log_name}")
         print(
             f"OLD: rows={existing_settings.get('rows')}, cols={existing_settings.get('cols')}, "
             f"spacing={existing_settings.get('well_spacing_mm')}, well_size={existing_settings.get('well_size_mm')}"
@@ -13450,8 +13458,12 @@ class WellplateCalibration(QDialog):
             self.wellplateFormatWidget.comboBox.setCurrentIndex(index)
         self.wellplateFormatWidget.setWellplateSettings(selected_format)
 
+        # Avoid duplicating "well plate" if already in the name
+        display_name = str(selected_format)
+        if "well plate" not in display_name.lower():
+            display_name = f"{selected_format} well plate"
         QMessageBox.information(
-            self, "Parameters Updated", f"Parameters for '{selected_format} well plate' have been updated successfully."
+            self, "Parameters Updated", f"Parameters for '{display_name}' have been updated successfully."
         )
 
     def calibrate(self):
@@ -13539,7 +13551,11 @@ class WellplateCalibration(QDialog):
                 # Get the existing format settings
                 existing_settings = WELLPLATE_FORMAT_SETTINGS[selected_format]
 
-                print(f"Updating existing format {selected_format} well plate")
+                # Avoid duplicating "well plate" if already in the name
+                log_name = str(selected_format)
+                if "well plate" not in log_name.lower():
+                    log_name = f"{selected_format} well plate"
+                print(f"Updating existing format {log_name}")
                 print(
                     f"OLD: 'a1_x_mm': {existing_settings['a1_x_mm']}, 'a1_y_mm': {existing_settings['a1_y_mm']}, 'well_size_mm': {existing_settings['well_size_mm']}"
                 )
@@ -13555,7 +13571,11 @@ class WellplateCalibration(QDialog):
 
                 self.wellplateFormatWidget.save_formats_to_csv()
                 self.wellplateFormatWidget.setWellplateSettings(selected_format)
-                success_message = f"Format '{selected_format} well plate' has been successfully recalibrated."
+                # Avoid duplicating "well plate" if already in the name
+                display_name = str(selected_format)
+                if "well plate" not in display_name.lower():
+                    display_name = f"{selected_format} well plate"
+                success_message = f"Format '{display_name}' has been successfully recalibrated."
 
             # Update the WellplateFormatWidget's combo box to reflect the newly calibrated format
             self.wellplateFormatWidget.populate_combo_box()
