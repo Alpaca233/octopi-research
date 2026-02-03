@@ -1455,6 +1455,7 @@ class HighContentScreeningGui(QMainWindow):
 
         if RUN_FLUIDICS:
             self.multiPointWithFluidicsWidget.signal_acquisition_started.connect(self.toggleAcquisitionStart)
+            self.multiPointWithFluidicsWidget.signal_acquisition_started.connect(self.fluidicsWidget.set_acquisition_running)
             self.fluidicsWidget.fluidics_initialized_signal.connect(self.multiPointWithFluidicsWidget.init_fluidics)
             self.signal_performance_mode_changed.connect(self.multiPointWithFluidicsWidget.set_performance_mode)
 

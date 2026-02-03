@@ -9645,6 +9645,12 @@ class FluidicsWidget(QWidget):
         if model and hasattr(model, "set_editable"):
             model.set_editable(enabled)
 
+    def set_acquisition_running(self, running: bool):
+        """Disable table editing when acquisition is running."""
+        model = self.sequences_table.model()
+        if model and hasattr(model, "set_editable"):
+            model.set_editable(not running)
+
     def log_status(self, message):
         current_time = QDateTime.currentDateTime().toString("hh:mm:ss")
         self.status_text.append(f"[{current_time}] {message}")
