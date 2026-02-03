@@ -12982,7 +12982,7 @@ class WellplateCalibration(QDialog):
         self.clickToMoveCheckbox.setChecked(True)
         self.toggleVirtualJoystick(False)
         # Set minimum height to accommodate all UI configurations
-        self.setMinimumHeight(700)
+        self.setMinimumHeight(580)
 
     def initUI(self):
         layout = QHBoxLayout(self)  # Change to QHBoxLayout to have two columns
@@ -13012,7 +13012,10 @@ class WellplateCalibration(QDialog):
         self.new_format_radio.toggled.connect(self.toggle_input_mode)
         self.calibrate_format_radio.toggled.connect(self.toggle_input_mode)
 
-        self.form_layout = QFormLayout()
+        # New format inputs container (hidden when calibrating existing format)
+        self.new_format_widget = QWidget()
+        self.form_layout = QFormLayout(self.new_format_widget)
+        self.form_layout.setContentsMargins(0, 0, 0, 0)
 
         self.nameInput = QLineEdit(self)
         self.nameInput.setPlaceholderText("custom well plate")
@@ -13054,7 +13057,7 @@ class WellplateCalibration(QDialog):
         self.wellSpacingInput.setSuffix(" mm")
         self.form_layout.addRow("Well Spacing:", self.wellSpacingInput)
 
-        left_layout.addLayout(self.form_layout)
+        left_layout.addWidget(self.new_format_widget)
 
         # Existing format parameters section (initially hidden)
         self.existing_params_group = QGroupBox("Format Parameters")
@@ -13144,7 +13147,8 @@ class WellplateCalibration(QDialog):
         center_point_layout.addWidget(self.set_center_button, 1, 1)
 
         # Well size input for center point method (since we can't calculate it)
-        well_size_label = QLabel("Well Size:")
+        # Hidden when calibrating existing formats (Format Parameters section has well size)
+        self.center_well_size_label = QLabel("Well Size:")
         self.center_well_size_input = QDoubleSpinBox(self)
         self.center_well_size_input.setKeyboardTracking(False)
         self.center_well_size_input.setRange(0.1, 50)
@@ -13152,7 +13156,7 @@ class WellplateCalibration(QDialog):
         self.center_well_size_input.setDecimals(3)
         self.center_well_size_input.setValue(3.0)  # Default for small wells
         self.center_well_size_input.setSuffix(" mm")
-        center_point_layout.addWidget(well_size_label, 2, 0)
+        center_point_layout.addWidget(self.center_well_size_label, 2, 0)
         center_point_layout.addWidget(self.center_well_size_input, 2, 1)
 
         center_point_layout.setColumnStretch(0, 1)
@@ -13314,21 +13318,17 @@ class WellplateCalibration(QDialog):
             self.existing_format_combo.addItem(self._format_display_name(format_), format_)
 
     def toggle_input_mode(self):
-        if self.new_format_radio.isChecked():
-            self.existing_format_combo.hide()
-            self.existing_params_group.hide()
-            self.update_params_button.hide()
-            for i in range(self.form_layout.rowCount()):
-                self.form_layout.itemAt(i, QFormLayout.FieldRole).widget().show()
-                self.form_layout.itemAt(i, QFormLayout.LabelRole).widget().show()
-        else:
-            self.existing_format_combo.show()
-            self.existing_params_group.show()
-            self.update_params_button.show()
-            for i in range(self.form_layout.rowCount()):
-                self.form_layout.itemAt(i, QFormLayout.FieldRole).widget().hide()
-                self.form_layout.itemAt(i, QFormLayout.LabelRole).widget().hide()
-            # Load current values for selected format
+        is_new_format = self.new_format_radio.isChecked()
+
+        self.new_format_widget.setVisible(is_new_format)
+        self.center_well_size_label.setVisible(is_new_format)
+        self.center_well_size_input.setVisible(is_new_format)
+
+        self.existing_format_combo.setVisible(not is_new_format)
+        self.existing_params_group.setVisible(not is_new_format)
+        self.update_params_button.setVisible(not is_new_format)
+
+        if not is_new_format:
             self.load_existing_format_values()
 
     def load_existing_format_values(self):
@@ -13419,7 +13419,11 @@ class WellplateCalibration(QDialog):
                 QMessageBox.warning(self, "Incomplete Information", "Please set the center point before calibrating.")
                 return None
             a1_x_mm, a1_y_mm = self.center_point
-            well_size_mm = self.center_well_size_input.value()
+            # Use appropriate well size input based on mode
+            if self.calibrate_format_radio.isChecked():
+                well_size_mm = self.existing_well_size_input.value()
+            else:
+                well_size_mm = self.center_well_size_input.value()
         else:
             if not all(self.corners):
                 QMessageBox.warning(self, "Incomplete Information", "Please set 3 corner points before calibrating.")
