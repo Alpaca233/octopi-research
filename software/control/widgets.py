@@ -9622,10 +9622,9 @@ class FluidicsWidget(QWidget):
 
     def on_finish(self, status=None):
         self.enable_controls(True)
-        try:
-            self.sequences_table.model().set_current_row(-1)
-        except:
-            pass
+        model = self.sequences_table.model()
+        if model is not None:
+            model.set_current_row(-1)
         if status is None:
             status = "Sequence section completed"
         self.fluidics.reset_abort()
@@ -9696,37 +9695,40 @@ class PandasTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
-        if role in (Qt.DisplayRole, Qt.EditRole):
-            value = self._data.iloc[index.row(), index.column()]
-            if pd.isna(value):
-                return "" if role == Qt.DisplayRole else None
 
-            column_name = self._data.columns[index.column()]
+        if role == Qt.BackgroundRole:
+            color = QColor(173, 216, 230) if index.row() == self._current_row else QColor(255, 255, 255)
+            return QBrush(color)
 
-            # For EditRole, return raw value for editing
-            if role == Qt.EditRole:
-                if column_name in self._editable_columns:
-                    return int(value)
-                return str(value)
+        if role not in (Qt.DisplayRole, Qt.EditRole):
+            return None
 
-            # For DisplayRole, map port numbers to names
-            if column_name in ["fluidic_port", "fill_tubing_with"] and self._port_names:
-                try:
-                    port_num = int(value)
-                    if 1 <= port_num <= len(self._port_names):
-                        return self._port_names[port_num - 1]
-                except (ValueError, TypeError):
-                    pass
+        value = self._data.iloc[index.row(), index.column()]
+        if pd.isna(value):
+            return "" if role == Qt.DisplayRole else None
 
-            return str(value)
+        column_name = self._data.columns[index.column()]
 
-        elif role == Qt.BackgroundRole:
-            # Highlight the current row
-            if index.row() == self._current_row:
-                return QBrush(QColor(173, 216, 230))  # Light blue
-            else:
-                return QBrush(QColor(255, 255, 255))  # White
-        return None
+        if role == Qt.EditRole:
+            return int(value) if column_name in self._editable_columns else str(value)
+
+        # DisplayRole: map port numbers to names for port columns
+        if column_name in ["fluidic_port", "fill_tubing_with"] and self._port_names:
+            port_name = self._get_port_name(value)
+            if port_name:
+                return port_name
+
+        return str(value)
+
+    def _get_port_name(self, value) -> str:
+        """Return port name for a port number, or empty string if invalid."""
+        try:
+            port_num = int(value)
+            if 1 <= port_num <= len(self._port_names):
+                return self._port_names[port_num - 1]
+        except (ValueError, TypeError):
+            pass
+        return ""
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
@@ -9764,19 +9766,21 @@ class PandasTableModel(QAbstractTableModel):
             return False
         try:
             int_value = int(value)
-            # Validate based on column constraints
-            if column_name == "flow_rate" and int_value <= 0:
+            if not self._is_valid_column_value(column_name, int_value):
                 return False
-            if column_name == "volume" and int_value <= 0:
-                return False
-            if column_name in ["incubation_time", "repeat"] and int_value < 0:
-                return False
-
             self._data.iloc[index.row(), index.column()] = int_value
             self.dataChanged.emit(index, index)
             return True
         except (ValueError, TypeError):
             return False
+
+    def _is_valid_column_value(self, column_name: str, value: int) -> bool:
+        """Check if the value is valid for the given column."""
+        if column_name in ["flow_rate", "volume"]:
+            return value > 0
+        if column_name in ["incubation_time", "repeat"]:
+            return value >= 0
+        return True
 
 
 class FocusMapWidget(QFrame):
