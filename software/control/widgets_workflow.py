@@ -195,6 +195,106 @@ class AddSequenceDialog(QDialog):
         }
 
 
+class AddAcquisitionDialog(QDialog):
+    """Dialog for adding or editing an acquisition sequence."""
+
+    def __init__(self, parent=None, edit_data: dict = None):
+        """
+        Initialize dialog.
+
+        Args:
+            parent: Parent widget
+            edit_data: If provided, pre-populate fields for editing. Keys: name, config_path
+        """
+        super().__init__(parent)
+        self._edit_mode = edit_data is not None
+        self.setWindowTitle("Edit Acquisition" if self._edit_mode else "Add Acquisition")
+        self.setMinimumWidth(500)
+        self._setup_ui()
+        if edit_data:
+            self._populate_from_data(edit_data)
+
+    def _setup_ui(self):
+        layout = QFormLayout(self)
+
+        # Name
+        self.edit_name = QLineEdit()
+        self.edit_name.setPlaceholderText("e.g., Acquisition, Pre-scan, Post-treatment scan")
+        self.edit_name.setText("Acquisition")
+        layout.addRow("Name:", self.edit_name)
+
+        # Config path with browse button
+        config_layout = QHBoxLayout()
+        self.edit_config_path = QLineEdit()
+        self.edit_config_path.setPlaceholderText("(Optional) /path/to/acquisition.yaml")
+        config_layout.addWidget(self.edit_config_path)
+
+        self.btn_browse = QPushButton("Browse...")
+        self.btn_browse.clicked.connect(self._browse_config)
+        config_layout.addWidget(self.btn_browse)
+        layout.addRow("Config File:", config_layout)
+
+        # Help text
+        help_text = QLabel(
+            "<small><i>Leave empty to use current software settings.<br>"
+            "If a YAML file is provided, acquisition settings will be<br>"
+            "loaded from the file before running.</i></small>"
+        )
+        help_text.setStyleSheet("color: gray;")
+        layout.addRow(help_text)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.btn_add = QPushButton("Save" if self._edit_mode else "Add")
+        self.btn_add.clicked.connect(self._validate_and_accept)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_add)
+        btn_layout.addWidget(self.btn_cancel)
+        layout.addRow(btn_layout)
+
+    def _populate_from_data(self, data: dict):
+        """Pre-populate form fields from existing data."""
+        if data.get("name"):
+            self.edit_name.setText(data["name"])
+        if data.get("config_path"):
+            self.edit_config_path.setText(data["config_path"])
+
+    def _browse_config(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Acquisition Config", "", "YAML Files (*.yaml *.yml);;All Files (*)"
+        )
+        if file_path:
+            self.edit_config_path.setText(file_path)
+
+    def _validate_and_accept(self):
+        name = self.edit_name.text().strip()
+
+        if not name:
+            QMessageBox.warning(self, "Validation Error", "Name is required.")
+            return
+
+        # Validate config path if provided
+        config_path = self.edit_config_path.text().strip()
+        if config_path and not os.path.exists(config_path):
+            reply = QMessageBox.question(
+                self,
+                "Config File Not Found",
+                f"Config file '{config_path}' does not exist. Add anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        self.accept()
+
+    def get_sequence_data(self) -> dict:
+        return {
+            "name": self.edit_name.text().strip(),
+            "config_path": self.edit_config_path.text().strip() or None,
+        }
+
+
 class WorkflowRunnerDialog(QDialog):
     """Dialog for configuring and running workflow sequences."""
 
@@ -377,7 +477,11 @@ class WorkflowRunnerDialog(QDialog):
     def _create_command_item(self, seq: SequenceItem) -> QTableWidgetItem:
         """Create the command column item for a sequence."""
         if seq.is_acquisition():
-            item = QTableWidgetItem("(Built-in Acquisition)")
+            if seq.config_path:
+                cmd_text = f"Config: {os.path.basename(seq.config_path)}"
+            else:
+                cmd_text = "(Current Settings)"
+            item = QTableWidgetItem(cmd_text)
             self._apply_acquisition_styling(item, is_acquisition=True, include_foreground=True)
             return item
 
@@ -406,32 +510,69 @@ class WorkflowRunnerDialog(QDialog):
         if row < len(self._workflow.sequences):
             self._workflow.sequences[row].included = checked
 
-    def _insert_sequence(self, above: bool):
-        """Insert a new sequence above or below current selection."""
-        dialog = AddSequenceDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            seq_data = dialog.get_sequence_data()
+    def _insert_sequence(self, above: bool, sequence_type: str = None):
+        """Insert a new sequence above or below current selection.
 
-            new_seq = SequenceItem(
-                name=seq_data["name"],
-                sequence_type=SequenceType.SCRIPT,
-                script_path=seq_data["script_path"],
-                arguments=seq_data["arguments"],
-                python_path=seq_data["python_path"],
-                conda_env=seq_data["conda_env"],
-                included=True,
-            )
+        Args:
+            above: If True, insert above current selection; otherwise below.
+            sequence_type: "script" or "acquisition". If None, prompts user to choose.
+        """
+        # Ask user what type of sequence to add if not specified
+        if sequence_type is None:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Sequence Type")
+            msg_box.setText("What type of sequence do you want to add?")
+            btn_script = msg_box.addButton("Script", QMessageBox.AcceptRole)
+            btn_acquisition = msg_box.addButton("Acquisition", QMessageBox.AcceptRole)
+            msg_box.addButton(QMessageBox.Cancel)
+            msg_box.exec_()
 
-            current_row = self.table.currentRow()
-            if current_row < 0:
-                insert_idx = 0 if above else len(self._workflow.sequences)
+            clicked = msg_box.clickedButton()
+            if clicked == btn_script:
+                sequence_type = "script"
+            elif clicked == btn_acquisition:
+                sequence_type = "acquisition"
             else:
-                insert_idx = current_row if above else current_row + 1
+                return
 
-            self._workflow.sequences.insert(insert_idx, new_seq)
-            self._load_workflow_to_table()
-            self.table.selectRow(insert_idx)
-            self.label_status.setText(f"Added sequence '{new_seq.name}'")
+        if sequence_type == "acquisition":
+            dialog = AddAcquisitionDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                seq_data = dialog.get_sequence_data()
+                new_seq = SequenceItem(
+                    name=seq_data["name"],
+                    sequence_type=SequenceType.ACQUISITION,
+                    config_path=seq_data["config_path"],
+                    included=True,
+                )
+            else:
+                return
+        else:
+            dialog = AddSequenceDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                seq_data = dialog.get_sequence_data()
+                new_seq = SequenceItem(
+                    name=seq_data["name"],
+                    sequence_type=SequenceType.SCRIPT,
+                    script_path=seq_data["script_path"],
+                    arguments=seq_data["arguments"],
+                    python_path=seq_data["python_path"],
+                    conda_env=seq_data["conda_env"],
+                    included=True,
+                )
+            else:
+                return
+
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            insert_idx = 0 if above else len(self._workflow.sequences)
+        else:
+            insert_idx = current_row if above else current_row + 1
+
+        self._workflow.sequences.insert(insert_idx, new_seq)
+        self._load_workflow_to_table()
+        self.table.selectRow(insert_idx)
+        self.label_status.setText(f"Added sequence '{new_seq.name}'")
 
     def _edit_sequence(self):
         """Edit the selected sequence."""
@@ -441,62 +582,64 @@ class WorkflowRunnerDialog(QDialog):
             return
 
         seq = self._workflow.sequences[current_row]
+
         if seq.is_acquisition():
-            QMessageBox.warning(
-                self,
-                "Cannot Edit",
-                "The 'Acquisition' sequence cannot be edited. "
-                "Configure acquisition settings in the main application.",
-            )
-            return
+            # Edit acquisition sequence
+            edit_data = {
+                "name": seq.name,
+                "config_path": seq.config_path,
+            }
+            dialog = AddAcquisitionDialog(self, edit_data=edit_data)
+            if dialog.exec_() == QDialog.Accepted:
+                seq_data = dialog.get_sequence_data()
+                seq.name = seq_data["name"]
+                seq.config_path = seq_data["config_path"]
 
-        # Prepare existing data for the dialog
-        edit_data = {
-            "name": seq.name,
-            "script_path": seq.script_path,
-            "arguments": seq.arguments,
-            "python_path": seq.python_path,
-            "conda_env": seq.conda_env,
-        }
+                self._load_workflow_to_table()
+                self.table.selectRow(current_row)
+                self.label_status.setText(f"Updated acquisition '{seq.name}'")
+        else:
+            # Edit script sequence
+            edit_data = {
+                "name": seq.name,
+                "script_path": seq.script_path,
+                "arguments": seq.arguments,
+                "python_path": seq.python_path,
+                "conda_env": seq.conda_env,
+            }
 
-        dialog = AddSequenceDialog(self, edit_data=edit_data)
-        if dialog.exec_() == QDialog.Accepted:
-            seq_data = dialog.get_sequence_data()
+            dialog = AddSequenceDialog(self, edit_data=edit_data)
+            if dialog.exec_() == QDialog.Accepted:
+                seq_data = dialog.get_sequence_data()
 
-            # Update the existing sequence
-            seq.name = seq_data["name"]
-            seq.script_path = seq_data["script_path"]
-            seq.arguments = seq_data["arguments"]
-            seq.python_path = seq_data["python_path"]
-            seq.conda_env = seq_data["conda_env"]
+                # Update the existing sequence
+                seq.name = seq_data["name"]
+                seq.script_path = seq_data["script_path"]
+                seq.arguments = seq_data["arguments"]
+                seq.python_path = seq_data["python_path"]
+                seq.conda_env = seq_data["conda_env"]
 
-            self._load_workflow_to_table()
-            self.table.selectRow(current_row)
-            self.label_status.setText(f"Updated sequence '{seq.name}'")
+                self._load_workflow_to_table()
+                self.table.selectRow(current_row)
+                self.label_status.setText(f"Updated sequence '{seq.name}'")
 
     def _remove_sequence(self):
-        """Remove selected sequence (cannot remove Acquisition)."""
+        """Remove selected sequence."""
         current_row = self.table.currentRow()
         if current_row < 0:
             QMessageBox.information(self, "No Selection", "Please select a sequence to remove.")
             return
 
         seq = self._workflow.sequences[current_row]
-        if seq.is_acquisition():
-            QMessageBox.warning(
-                self,
-                "Cannot Remove",
-                "The 'Acquisition' sequence cannot be removed. " "Uncheck 'Include' to skip it instead.",
-            )
-            return
+        seq_type = "acquisition" if seq.is_acquisition() else "sequence"
 
         reply = QMessageBox.question(
-            self, "Confirm Remove", f"Remove sequence '{seq.name}'?", QMessageBox.Yes | QMessageBox.No
+            self, "Confirm Remove", f"Remove {seq_type} '{seq.name}'?", QMessageBox.Yes | QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             del self._workflow.sequences[current_row]
             self._load_workflow_to_table()
-            self.label_status.setText(f"Removed sequence '{seq.name}'")
+            self.label_status.setText(f"Removed {seq_type} '{seq.name}'")
 
     def _save_workflow(self):
         """Save workflow to YAML file."""

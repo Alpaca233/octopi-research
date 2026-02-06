@@ -2085,9 +2085,14 @@ class HighContentScreeningGui(QMainWindow):
             if current_widget:
                 current_widget.setEnabled(enabled)
 
-    def _run_acquisition_for_workflow(self):
-        """Called by workflow runner to start acquisition."""
-        self.log.info("Workflow requesting acquisition start")
+    def _run_acquisition_for_workflow(self, config_path: str = ""):
+        """Called by workflow runner to start acquisition.
+
+        Args:
+            config_path: Optional path to acquisition.yaml file. If provided,
+                        settings are loaded from the file before starting acquisition.
+        """
+        self.log.info(f"Workflow requesting acquisition start (config_path={config_path or 'None'})")
         widget = self.recordTabWidget.currentWidget()
 
         # Check if current tab supports acquisition
@@ -2095,6 +2100,22 @@ class HighContentScreeningGui(QMainWindow):
         if not has_acquisition:
             self._handle_acquisition_tab_error()
             return
+
+        # Load settings from YAML if provided
+        if config_path:
+            if hasattr(widget, "_load_acquisition_yaml"):
+                try:
+                    self.log.info(f"Loading acquisition settings from: {config_path}")
+                    widget._load_acquisition_yaml(config_path)
+                except Exception as e:
+                    error_msg = f"Failed to load acquisition settings from '{config_path}': {e}"
+                    self.log.error(error_msg)
+                    if self.workflowRunner:
+                        self.workflowRunner.signal_error.emit(error_msg)
+                        self.workflowRunner.on_acquisition_finished()
+                    return
+            else:
+                self.log.warning(f"Widget {type(widget).__name__} does not support _load_acquisition_yaml")
 
         # Re-enable widget and start acquisition
         widget.setEnabled(True)
