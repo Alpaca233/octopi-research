@@ -34,13 +34,24 @@ import squid.logging
 
 
 class AddSequenceDialog(QDialog):
-    """Dialog for adding a new script sequence."""
+    """Dialog for adding or editing a script sequence."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, edit_data: dict = None):
+        """
+        Initialize dialog.
+
+        Args:
+            parent: Parent widget
+            edit_data: If provided, pre-populate fields for editing. Keys: name, script_path,
+                      arguments, python_path, conda_env
+        """
         super().__init__(parent)
-        self.setWindowTitle("Add Sequence")
+        self._edit_mode = edit_data is not None
+        self.setWindowTitle("Edit Sequence" if self._edit_mode else "Add Sequence")
         self.setMinimumWidth(500)
         self._setup_ui()
+        if edit_data:
+            self._populate_from_data(edit_data)
 
     def _setup_ui(self):
         layout = QFormLayout(self)
@@ -101,13 +112,26 @@ class AddSequenceDialog(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
-        self.btn_add = QPushButton("Add")
+        self.btn_add = QPushButton("Save" if self._edit_mode else "Add")
         self.btn_add.clicked.connect(self._validate_and_accept)
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(self.btn_add)
         btn_layout.addWidget(self.btn_cancel)
         layout.addRow(btn_layout)
+
+    def _populate_from_data(self, data: dict):
+        """Pre-populate form fields from existing data."""
+        if data.get("name"):
+            self.edit_name.setText(data["name"])
+        if data.get("script_path"):
+            self.edit_script_path.setText(data["script_path"])
+        if data.get("arguments"):
+            self.edit_arguments.setText(data["arguments"])
+        if data.get("python_path"):
+            self.edit_python_path.setText(data["python_path"])
+        if data.get("conda_env"):
+            self.edit_conda_env.setText(data["conda_env"])
 
     def _browse_script(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -239,6 +263,10 @@ class WorkflowRunnerDialog(QDialog):
         self.btn_insert_below = QPushButton("Insert Below")
         self.btn_insert_below.clicked.connect(lambda: self._insert_sequence(above=False))
         btn_layout.addWidget(self.btn_insert_below)
+
+        self.btn_edit = QPushButton("Edit")
+        self.btn_edit.clicked.connect(self._edit_sequence)
+        btn_layout.addWidget(self.btn_edit)
 
         self.btn_remove = QPushButton("Remove")
         self.btn_remove.clicked.connect(self._remove_sequence)
@@ -404,6 +432,47 @@ class WorkflowRunnerDialog(QDialog):
             self._load_workflow_to_table()
             self.table.selectRow(insert_idx)
             self.label_status.setText(f"Added sequence '{new_seq.name}'")
+
+    def _edit_sequence(self):
+        """Edit the selected sequence."""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "No Selection", "Please select a sequence to edit.")
+            return
+
+        seq = self._workflow.sequences[current_row]
+        if seq.is_acquisition():
+            QMessageBox.warning(
+                self,
+                "Cannot Edit",
+                "The 'Acquisition' sequence cannot be edited. "
+                "Configure acquisition settings in the main application.",
+            )
+            return
+
+        # Prepare existing data for the dialog
+        edit_data = {
+            "name": seq.name,
+            "script_path": seq.script_path,
+            "arguments": seq.arguments,
+            "python_path": seq.python_path,
+            "conda_env": seq.conda_env,
+        }
+
+        dialog = AddSequenceDialog(self, edit_data=edit_data)
+        if dialog.exec_() == QDialog.Accepted:
+            seq_data = dialog.get_sequence_data()
+
+            # Update the existing sequence
+            seq.name = seq_data["name"]
+            seq.script_path = seq_data["script_path"]
+            seq.arguments = seq_data["arguments"]
+            seq.python_path = seq_data["python_path"]
+            seq.conda_env = seq_data["conda_env"]
+
+            self._load_workflow_to_table()
+            self.table.selectRow(current_row)
+            self.label_status.setText(f"Updated sequence '{seq.name}'")
 
     def _remove_sequence(self):
         """Remove selected sequence (cannot remove Acquisition)."""
@@ -574,6 +643,7 @@ class WorkflowRunnerDialog(QDialog):
             self.btn_run,
             self.btn_insert_above,
             self.btn_insert_below,
+            self.btn_edit,
             self.btn_remove,
             self.btn_save,
             self.btn_load,
