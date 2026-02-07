@@ -1972,6 +1972,26 @@ class HighContentScreeningGui(QMainWindow):
         """Start executing a workflow."""
         from control.workflow_runner import WorkflowRunner
 
+        # Validate: if any acquisition has config_path, current widget must support YAML loading
+        has_config_path = any(
+            seq.is_acquisition() and seq.config_path
+            for seq in workflow.get_included_sequences()
+        )
+        if has_config_path:
+            widget = self.recordTabWidget.currentWidget()
+            if not hasattr(widget, "_load_acquisition_yaml"):
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "Incompatible Tab",
+                    f"This workflow has acquisition sequences with config files, but the current "
+                    f"tab ({type(widget).__name__}) does not support loading YAML settings.\n\n"
+                    f"Either:\n"
+                    f"• Switch to Wellplate or Flexible Multipoint tab, or\n"
+                    f"• Edit the acquisition sequences to remove config file paths",
+                )
+                return
+
         # Create runner if needed
         if self.workflowRunner is None:
             self.workflowRunner = WorkflowRunner(self)
@@ -2115,7 +2135,16 @@ class HighContentScreeningGui(QMainWindow):
                         self.workflowRunner.on_acquisition_finished()
                     return
             else:
-                self.log.warning(f"Widget {type(widget).__name__} does not support _load_acquisition_yaml")
+                # This shouldn't happen if pre-flight check passed, but handle it as fallback
+                error_msg = (
+                    f"Widget {type(widget).__name__} does not support loading YAML settings. "
+                    f"Config file '{config_path}' cannot be applied."
+                )
+                self.log.error(error_msg)
+                if self.workflowRunner:
+                    self.workflowRunner.signal_error.emit(error_msg)
+                    self.workflowRunner.on_acquisition_finished()
+                return
 
         # Re-enable widget and start acquisition
         widget.setEnabled(True)
