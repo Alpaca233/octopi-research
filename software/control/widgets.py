@@ -905,15 +905,19 @@ class AcquisitionYAMLDropMixin:
             return "Flexible Multipoint"
         return "Wellplate Multipoint"
 
-    def _load_acquisition_yaml(self, file_path: str):
-        """Load acquisition settings from YAML file."""
+    def _load_acquisition_yaml(self, file_path: str) -> bool:
+        """Load acquisition settings from YAML file.
+
+        Returns:
+            True if settings were loaded successfully, False otherwise.
+        """
         from control.acquisition_yaml_loader import parse_acquisition_yaml, validate_hardware
 
         try:
             yaml_data = parse_acquisition_yaml(file_path)
         except Exception as e:
             QMessageBox.warning(self, "Load Error", f"Failed to parse YAML file:\n{e}")
-            return
+            return False
 
         # Check widget type
         expected_type = self._get_expected_widget_type()
@@ -924,7 +928,7 @@ class AcquisitionYAMLDropMixin:
                 f"This YAML is for '{yaml_data.widget_type}' mode.\n"
                 f"Please drop this file on the {self._get_other_widget_name()} widget instead.",
             )
-            return
+            return False
 
         # Validate hardware
         current_binning = (1, 1)
@@ -944,11 +948,12 @@ class AcquisitionYAMLDropMixin:
         if not validation.is_valid:
             dialog = AcquisitionYAMLMismatchDialog(validation, self)
             dialog.exec_()
-            return
+            return False
 
         # Apply settings with signal blocking
         self._apply_yaml_settings(yaml_data)
         self._log.info(f"Loaded acquisition settings from: {file_path}")
+        return True
 
     def _apply_yaml_settings(self, yaml_data):
         """Apply parsed YAML settings to widget controls. Override in subclass."""
