@@ -415,7 +415,7 @@ class WorkflowRunnerDialog(QDialog):
     def _setup_table_columns(self):
         """Configure table columns."""
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Include", "Name", "Command", "Cycle Arg", "Cycle Arg Values"])
+        self.table.setHorizontalHeaderLabels(["Include", "Name", "Command/Path", "Cycle Arg", "Cycle Arg Values"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)  # Command column stretches
@@ -508,9 +508,10 @@ class WorkflowRunnerDialog(QDialog):
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Sequence Type")
         msg_box.setText("What type of sequence do you want to add?")
-        btn_script = msg_box.addButton("Script", QMessageBox.AcceptRole)
-        btn_acquisition = msg_box.addButton("Acquisition", QMessageBox.AcceptRole)
-        msg_box.addButton(QMessageBox.Cancel)
+        # Add buttons in desired order: Script, Acquisition, Cancel
+        btn_script = msg_box.addButton("Script", QMessageBox.ActionRole)
+        btn_acquisition = msg_box.addButton("Acquisition", QMessageBox.ActionRole)
+        msg_box.addButton("Cancel", QMessageBox.RejectRole)
         msg_box.exec_()
 
         clicked = msg_box.clickedButton()
@@ -607,8 +608,7 @@ class WorkflowRunnerDialog(QDialog):
 
         self._load_workflow_to_table()
         self.table.selectRow(current_row)
-        seq_type = "acquisition" if seq.is_acquisition() else "sequence"
-        self.label_status.setText(f"Updated {seq_type} '{seq.name}'")
+        self.label_status.setText("Changes saved")
 
     def _remove_sequence(self):
         """Remove selected sequence."""
