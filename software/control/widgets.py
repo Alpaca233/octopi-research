@@ -16759,6 +16759,7 @@ class WarningErrorWidget(QWidget):
 
         # Message text
         self.label_text = QLabel()
+        self.label_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         # Expand button (shows when multiple messages or dropped messages)
         self.btn_expand = QPushButton()
@@ -16924,6 +16925,7 @@ class WarningErrorWidget(QWidget):
         msg_label.setWordWrap(True)
         msg_label.setStyleSheet("font-size: 12px; color: #333;")
         msg_label.setTextFormat(Qt.RichText)
+        msg_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         # Dismiss button - use message ID for stable reference
         btn_dismiss = QPushButton("✕")
