@@ -6,7 +6,7 @@ sequences:
   - name: Fluidics
     type: script
     included: true
-    script_path: tests/scripts/test_workflow_script.py
+    script_path: tests/files/test_workflow_script.py
     arguments: --duration 1 --name "Fluidics"
     python_path: null
     conda_env: null
