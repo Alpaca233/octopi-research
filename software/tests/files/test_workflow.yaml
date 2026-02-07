@@ -6,7 +6,7 @@ sequences:
   - name: Pre-Acquisition Setup
     type: script
     included: true
-    script_path: tests/scripts/test_workflow_script.py
+    script_path: tests/files/test_workflow_script.py
     arguments: --duration 2 --name "Pre-Setup"
     python_path: null
     conda_env: null
@@ -28,7 +28,7 @@ sequences:
   - name: Post-Acquisition Processing
     type: script
     included: true
-    script_path: tests/scripts/test_workflow_script.py
+    script_path: tests/files/test_workflow_script.py
     arguments: --duration 3 --name "Post-Process"
     python_path: null
     conda_env: null
