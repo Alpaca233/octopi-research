@@ -1973,14 +1973,12 @@ class HighContentScreeningGui(QMainWindow):
         from control.workflow_runner import WorkflowRunner
 
         # Validate: if any acquisition has config_path, current widget must support YAML loading
-        has_config_path = any(
-            seq.is_acquisition() and seq.config_path
-            for seq in workflow.get_included_sequences()
-        )
+        has_config_path = any(seq.is_acquisition() and seq.config_path for seq in workflow.get_included_sequences())
         if has_config_path:
             widget = self.recordTabWidget.currentWidget()
             if not hasattr(widget, "_load_acquisition_yaml"):
                 from qtpy.QtWidgets import QMessageBox
+
                 QMessageBox.warning(
                     self,
                     "Incompatible Tab",
@@ -2039,8 +2037,13 @@ class HighContentScreeningGui(QMainWindow):
         """Handle sequence completion."""
         self.log.info(f"Sequence finished: {name}, success={success}")
 
-        # Disable acquisition widget again after acquisition completes (if workflow still running)
-        if name == "Acquisition" and self.workflowRunner and self.workflowRunner.is_running():
+        # Disable acquisition widget after acquisition completes (if workflow still running)
+        if not (self.workflowRunner and self.workflowRunner.is_running()):
+            return
+        workflow = self.workflowRunner._workflow
+        if not workflow or index >= len(workflow.sequences):
+            return
+        if workflow.sequences[index].is_acquisition():
             widget = self.recordTabWidget.currentWidget()
             if widget:
                 widget.setEnabled(False)
@@ -2105,6 +2108,13 @@ class HighContentScreeningGui(QMainWindow):
             if current_widget:
                 current_widget.setEnabled(enabled)
 
+    def _fail_workflow_acquisition(self, error_msg: str):
+        """Fail the current workflow acquisition step with an error."""
+        self.log.error(error_msg)
+        if self.workflowRunner:
+            self.workflowRunner.signal_error.emit(error_msg)
+            self.workflowRunner.on_acquisition_finished()
+
     def _run_acquisition_for_workflow(self, config_path: str = ""):
         """Called by workflow runner to start acquisition.
 
@@ -2123,27 +2133,18 @@ class HighContentScreeningGui(QMainWindow):
 
         # Load settings from YAML if provided
         if config_path:
-            if hasattr(widget, "_load_acquisition_yaml"):
-                try:
-                    self.log.info(f"Loading acquisition settings from: {config_path}")
-                    widget._load_acquisition_yaml(config_path)
-                except Exception as e:
-                    error_msg = f"Failed to load acquisition settings from '{config_path}': {e}"
-                    self.log.error(error_msg)
-                    if self.workflowRunner:
-                        self.workflowRunner.signal_error.emit(error_msg)
-                        self.workflowRunner.on_acquisition_finished()
-                    return
-            else:
-                # This shouldn't happen if pre-flight check passed, but handle it as fallback
-                error_msg = (
-                    f"Widget {type(widget).__name__} does not support loading YAML settings. "
-                    f"Config file '{config_path}' cannot be applied."
+            if not hasattr(widget, "_load_acquisition_yaml"):
+                self._fail_workflow_acquisition(
+                    f"Widget {type(widget).__name__} does not support loading YAML settings."
                 )
-                self.log.error(error_msg)
-                if self.workflowRunner:
-                    self.workflowRunner.signal_error.emit(error_msg)
-                    self.workflowRunner.on_acquisition_finished()
+                return
+            try:
+                self.log.info(f"Loading acquisition settings from: {config_path}")
+                if not widget._load_acquisition_yaml(config_path):
+                    self._fail_workflow_acquisition(f"Failed to load settings from '{config_path}'")
+                    return
+            except Exception as e:
+                self._fail_workflow_acquisition(f"Error loading '{config_path}': {e}")
                 return
 
         # Re-enable widget and start acquisition

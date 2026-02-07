@@ -19,26 +19,27 @@ def main():
     parser.add_argument("--fail", action="store_true", help="Exit with error code 1")
     args = parser.parse_args()
 
-    print(f"[{args.name}] Starting...")
+    print(f"[{args.name}] Starting...", flush=True)
     if args.port is not None:
-        print(f"[{args.name}] Port argument received: {args.port}")
+        print(f"[{args.name}] Port argument received: {args.port}", flush=True)
 
-    print(f"[{args.name}] Sleeping for {args.duration} seconds...")
+    print(f"[{args.name}] Sleeping for {args.duration} seconds...", flush=True)
 
     # Sleep in small increments to show progress
     elapsed = 0.0
     interval = 0.5
     while elapsed < args.duration:
-        time.sleep(min(interval, args.duration - elapsed))
-        elapsed += interval
+        sleep_duration = min(interval, args.duration - elapsed)
+        time.sleep(sleep_duration)
+        elapsed += sleep_duration
         if elapsed < args.duration:
-            print(f"[{args.name}] Progress: {elapsed:.1f}/{args.duration:.1f}s")
+            print(f"[{args.name}] Progress: {elapsed:.1f}/{args.duration:.1f}s", flush=True)
 
     if args.fail:
-        print(f"[{args.name}] Simulating failure!")
+        print(f"[{args.name}] Simulating failure!", flush=True)
         sys.exit(1)
 
-    print(f"[{args.name}] Completed successfully!")
+    print(f"[{args.name}] Completed successfully!", flush=True)
     sys.exit(0)
 
 

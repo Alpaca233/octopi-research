@@ -208,7 +208,9 @@ class WorkflowRunner(QObject):
     signal_sequence_finished = Signal(int, str, bool)  # index, name, success
     signal_script_output = Signal(str)  # stdout/stderr line
     signal_error = Signal(str)  # error message
-    signal_request_acquisition = Signal(str)  # request main window to start acquisition; passes config_path (or empty string)
+    signal_request_acquisition = Signal(
+        str
+    )  # request main window to start acquisition; passes config_path (or empty string)
     signal_acquisition_waiting = Signal()  # waiting for acquisition to complete
 
     def __init__(self, parent=None):
