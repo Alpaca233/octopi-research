@@ -355,7 +355,8 @@ class TestWorkflow:
         # Test serialization roundtrip
         data = workflow.to_dict()
         assert data["sequences"][0]["config_path"] == "/path/to/prescan.yaml"
-        assert data["sequences"][1]["config_path"] is None
+        # Second sequence has no config_path (key not present or None)
+        assert data["sequences"][1].get("config_path") is None
 
         restored = Workflow.from_dict(data)
         assert restored.sequences[0].config_path == "/path/to/prescan.yaml"

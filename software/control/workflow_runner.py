@@ -135,24 +135,29 @@ class Workflow:
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for YAML export."""
-        return {
-            "num_cycles": self.num_cycles,
-            "sequences": [
-                {
-                    "name": s.name,
-                    "type": s.sequence_type.value,
-                    "included": s.included,
-                    "script_path": s.script_path,
-                    "arguments": s.arguments,
-                    "python_path": s.python_path,
-                    "conda_env": s.conda_env,
-                    "config_path": s.config_path,
-                    "cycle_arg_name": s.cycle_arg_name,
-                    "cycle_arg_values": s.cycle_arg_values,
-                }
-                for s in self.sequences
-            ],
-        }
+        sequences = []
+        for s in self.sequences:
+            seq_dict = {
+                "name": s.name,
+                "type": s.sequence_type.value,
+                "included": s.included,
+            }
+            # Only include optional fields if they have values
+            optional_fields = [
+                "script_path",
+                "arguments",
+                "python_path",
+                "conda_env",
+                "config_path",
+                "cycle_arg_name",
+                "cycle_arg_values",
+            ]
+            for field in optional_fields:
+                value = getattr(s, field)
+                if value is not None:
+                    seq_dict[field] = value
+            sequences.append(seq_dict)
+        return {"num_cycles": self.num_cycles, "sequences": sequences}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Workflow":
