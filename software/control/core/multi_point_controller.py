@@ -9,7 +9,7 @@ import yaml
 from datetime import datetime
 from enum import Enum
 from threading import Thread
-from typing import Optional, Tuple, Any
+from typing import List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,7 @@ from control import utils, utils_acquisition
 import control._def
 from control.core.auto_focus_controller import AutoFocusController
 from control.core.multi_point_utils import MultiPointControllerFunctions, ScanPositionInformation, AcquisitionParameters
+from control.core.state_machine import TimepointStateMachine, TimepointState, FOVIdentifier
 from control.core.scan_coordinates import ScanCoordinates
 from control.core.laser_auto_focus_controller import LaserAutofocusController
 from control.core.live_controller import LiveController
@@ -209,6 +210,7 @@ class MultiPointController:
         self.objectiveStore: ObjectiveStore = objective_store
         self.callbacks: MultiPointControllerFunctions = callbacks
         self.multiPointWorker: Optional[MultiPointWorker] = None
+        self._state_machine: Optional[TimepointStateMachine] = None
         self.fluidics: Optional[Any] = microscope.addons.fluidics
         self.thread: Optional[Thread] = None
         self._per_acq_log_handler = None
@@ -808,6 +810,14 @@ class MultiPointController:
                 self.overlap_percent,
             )
 
+            # Calculate total FOVs for this timepoint (for state machine)
+            total_fovs = sum(len(coords) for coords in scan_position_information.scan_region_fov_coords_mm.values())
+
+            # Create state machine for pause/resume/retake functionality
+            self._state_machine = TimepointStateMachine()
+            self._state_machine.reset(total_fovs)
+            self._state_machine.on_state_changed = self._on_state_changed
+
             self.multiPointWorker = MultiPointWorker(
                 scope=self.microscope,
                 live_controller=self.liveController,
@@ -821,6 +831,7 @@ class MultiPointController:
                 extra_job_classes=[],
                 alignment_widget=self._alignment_widget,
                 slack_notifier=self._slack_notifier,
+                state_machine=self._state_machine,
             )
 
             # Signal after worker creation so backpressure_controller is available
@@ -945,6 +956,75 @@ class MultiPointController:
             )
             return False
         return True
+
+    # --- State Machine Control Methods ---
+
+    def request_pause(self) -> bool:
+        """Request pause of current acquisition.
+
+        The acquisition will pause after completing the current FOV.
+
+        Returns:
+            True if pause request was accepted, False if not in a pausable state.
+        """
+        if self._state_machine:
+            return self._state_machine.request_pause()
+        return False
+
+    def request_resume(self) -> bool:
+        """Resume paused acquisition.
+
+        Returns:
+            True if successfully initiated resume, False if not paused.
+        """
+        if self._state_machine:
+            return self._state_machine.resume()
+        return False
+
+    def request_retake(self, fovs: List[FOVIdentifier]) -> bool:
+        """Request retake of specified FOVs.
+
+        Can only be called when acquisition is paused.
+
+        Args:
+            fovs: List of FOV identifiers to retake.
+
+        Returns:
+            True if retake started successfully, False otherwise.
+        """
+        if self._state_machine:
+            return self._state_machine.retake(fovs)
+        return False
+
+    def abort_retake(self) -> bool:
+        """Abort current retake operation only.
+
+        Does not abort the entire acquisition - returns to paused state.
+
+        Returns:
+            True if abort was handled, False otherwise.
+        """
+        if self._state_machine:
+            accepted, abort_all = self._state_machine.abort()
+            if accepted and not abort_all and self.multiPointWorker:
+                self.multiPointWorker.request_retake_abort()
+            return accepted
+        return False
+
+    def get_acquisition_state(self) -> Optional[TimepointState]:
+        """Get current acquisition state.
+
+        Returns:
+            Current TimepointState, or None if no state machine exists.
+        """
+        if self._state_machine:
+            return self._state_machine.state
+        return None
+
+    def _on_state_changed(self, new_state: TimepointState) -> None:
+        """Handle state machine state changes (called from state machine thread)."""
+        self._log.info(f"Acquisition state changed to: {new_state.name}")
+        self.callbacks.signal_state_changed(new_state)
 
     def get_plate_view(self) -> np.ndarray:
         """Get the current plate view array from the acquisition.

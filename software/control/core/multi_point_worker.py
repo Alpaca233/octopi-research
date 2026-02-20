@@ -25,6 +25,7 @@ from control.core.multi_point_utils import (
     PlateViewInit,
     PlateViewUpdate,
 )
+from control.core.state_machine import TimepointStateMachine, TimepointState, FOVIdentifier
 from control.core.objective_store import ObjectiveStore
 from control.microcontroller import Microcontroller
 from control.microscope import Microscope
@@ -81,11 +82,18 @@ class MultiPointWorker:
         abort_on_failed_jobs: bool = True,
         alignment_widget=None,
         slack_notifier=None,
+        state_machine: Optional[TimepointStateMachine] = None,
     ):
         self._log = squid.logging.get_logger(__class__.__name__)
         self._timing = utils.TimingManager("MultiPointWorker Timer Manager")
         self._alignment_widget = alignment_widget  # Optional AlignmentWidget for coordinate offset
         self._slack_notifier = slack_notifier  # Optional SlackNotifier for notifications
+
+        # State machine for pause/resume/retake functionality
+        self._state_machine = state_machine
+        self._fov_coords_map: Dict[Tuple[str, int], Tuple[float, float, float]] = {}
+        self._retake_abort_requested = False
+        self._current_path: Optional[str] = None  # Store current timepoint path for retakes
 
         # Slack notification tracking counters
         self._timepoint_image_count = 0
@@ -591,6 +599,14 @@ class MultiPointWorker:
 
             with self._timing.get_timer("run_coordinate_acquisition"):
                 self.run_coordinate_acquisition(current_path)
+
+            # Mark timepoint as captured in state machine
+            if self._state_machine:
+                self._state_machine.mark_all_captured()
+
+            # Check for pause after timepoint complete (allows review before next timepoint)
+            if self._state_machine and self._state_machine.is_pause_requested():
+                self._handle_pause()
 
             # Save plate view for this timepoint
             if self._generate_downsampled_views and self._downsampled_view_manager is not None:
@@ -1127,6 +1143,9 @@ class MultiPointWorker:
             self._downsampled_view_manager.save_plate_view(path)
 
     def run_coordinate_acquisition(self, current_path):
+        # Store current path for potential retakes
+        self._current_path = current_path
+
         # Reset backpressure counters at acquisition start
         # IMPORTANT: Must be before any camera triggers
         self._backpressure.reset()
@@ -1146,6 +1165,17 @@ class MultiPointWorker:
             self.total_scans = self.num_fovs * self.NZ * len(self.selected_configurations)
 
             for fov, coordinate_mm in enumerate(coordinates):
+                # Store coordinates for potential retake
+                self._fov_coords_map[(region_id, fov)] = coordinate_mm
+
+                # STATE MACHINE: Check for pause request before each FOV
+                if self._state_machine and self._state_machine.is_pause_requested():
+                    self._handle_pause()
+                    # After resume, check state
+                    state = self._state_machine.state
+                    if state == TimepointState.CAPTURED:
+                        return  # Done with timepoint (user chose to skip remaining)
+
                 # Just so the job result queues don't get too big, check and print a summary of intermediate results here
                 with self._timing.get_timer("job result summaries"):
                     result = self._summarize_runner_outputs()
@@ -1158,6 +1188,10 @@ class MultiPointWorker:
                     self.move_to_coordinate(coordinate_mm, region_id, fov)
                 with self._timing.get_timer("acquire_at_position"):
                     self.acquire_at_position(region_id, current_path, fov)
+
+                # Mark FOV as captured in state machine
+                if self._state_machine:
+                    self._state_machine.mark_fov_captured()
 
                 if self.abort_requested_fn():
                     self.handle_acquisition_abort(current_path)
@@ -1612,6 +1646,75 @@ class MultiPointWorker:
         self.microcontroller.enable_joystick(True)
 
         self._wait_for_outstanding_callback_images()
+
+    def _handle_pause(self) -> None:
+        """Handle pause request - wait for resume or retake."""
+        if not self._state_machine:
+            return
+
+        # Ensure all in-flight images are processed before pausing
+        self._wait_for_outstanding_callback_images()
+
+        # Transition to PAUSED state
+        self._state_machine.complete_pause()
+        self.callbacks.signal_paused()
+
+        # Wait for resume (loop handles retake cycles)
+        while True:
+            self._state_machine.wait_for_resume()
+
+            state = self._state_machine.state
+            if state == TimepointState.ACQUIRING:
+                self.callbacks.signal_resumed()
+                break
+            elif state == TimepointState.CAPTURED:
+                self.callbacks.signal_resumed()
+                break
+            elif state == TimepointState.RETAKING:
+                self._run_retakes()
+                # After retakes complete, we're back in PAUSED - loop again
+
+    def _run_retakes(self) -> None:
+        """Execute retakes for FOVs in retake list."""
+        if not self._state_machine:
+            return
+
+        retake_list = self._state_machine.get_retake_list()
+        self.callbacks.signal_retake_started(retake_list)
+        self._retake_abort_requested = False
+
+        self._log.info(f"Starting retake of {len(retake_list)} FOVs")
+
+        for fov_id in retake_list:
+            # Check for retake abort
+            if self._retake_abort_requested:
+                self._log.info("Retake aborted by user request")
+                break
+
+            # Check for full acquisition abort
+            if self.abort_requested_fn():
+                self._log.info("Retake aborted due to acquisition abort")
+                break
+
+            # Get stored coordinates
+            coord = self._fov_coords_map.get((fov_id.region_id, fov_id.fov_index))
+            if coord is None:
+                self._log.warning(f"No coordinates for FOV {fov_id}, skipping")
+                continue
+
+            self._log.info(f"Retaking FOV: region={fov_id.region_id}, fov={fov_id.fov_index}")
+
+            # Move and acquire
+            self.move_to_coordinate(coord, fov_id.region_id, fov_id.fov_index)
+            if self._current_path:
+                self.acquire_at_position(fov_id.region_id, self._current_path, fov_id.fov_index)
+
+        self._state_machine.complete_retakes()
+        self.callbacks.signal_retakes_complete()
+
+    def request_retake_abort(self) -> None:
+        """Request abort of current retake operation (called from controller)."""
+        self._retake_abort_requested = True
 
     def move_z_for_stack(self):
         if self.use_piezo:

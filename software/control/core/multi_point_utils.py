@@ -9,6 +9,7 @@ from squid.abc import CameraFrame
 
 if TYPE_CHECKING:
     from control.slack_notifier import TimepointStats, AcquisitionStats
+    from control.core.state_machine import TimepointState, FOVIdentifier
 
 
 @dataclass
@@ -125,3 +126,10 @@ class MultiPointControllerFunctions:
     # Zarr frame written callback - called when subprocess completes writing a frame
     # Args: (fov, time_point, z_index, channel_name, region_idx)
     signal_zarr_frame_written: Callable[[int, int, int, str, int], None] = lambda *a, **kw: None
+
+    # State machine signals for pause/resume/retake functionality
+    signal_state_changed: Callable[["TimepointState"], None] = lambda *a, **kw: None
+    signal_paused: Callable[[], None] = lambda *a, **kw: None
+    signal_resumed: Callable[[], None] = lambda *a, **kw: None
+    signal_retake_started: Callable[[List["FOVIdentifier"]], None] = lambda *a, **kw: None
+    signal_retakes_complete: Callable[[], None] = lambda *a, **kw: None
