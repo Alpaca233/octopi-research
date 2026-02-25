@@ -6,7 +6,6 @@ from typing import Optional, Tuple, Sequence, Dict, Any, List
 
 from pymmcore_plus import CMMCorePlus
 
-
 # -----------------------------------------------------------------------------
 # Optional integration with your Stage ABC
 # -----------------------------------------------------------------------------
@@ -48,6 +47,27 @@ class PFSException(NikonTi2Exception):
 
 class StageException(NikonTi2Exception):
     pass
+
+
+class NikonFilterWheelException(NikonTi2Exception):
+    pass
+
+
+class NikonDIAException(NikonTi2Exception):
+    pass
+
+
+# -----------------------------------------------------------------------------
+# Components container
+# -----------------------------------------------------------------------------
+@dataclass
+class NikonTi2Components:
+    """Container for all Nikon Ti2 components returned by adapter initialization."""
+
+    stage: Optional["NikonTi2Stage"] = None
+    pfs: Optional["NikonTi2PFS"] = None
+    filter_wheel: Optional["NikonTi2FilterWheel"] = None
+    dia: Optional["NikonTi2DIA"] = None
 
 
 # -----------------------------------------------------------------------------
@@ -548,16 +568,284 @@ class NikonTi2Stage(AbstractStage):
 
 
 # -----------------------------------------------------------------------------
-# Adapter: initializes NikonTi2 devices, returns (stage, pfs)
+# Ti2 Filter Wheel
+# -----------------------------------------------------------------------------
+class NikonTi2FilterWheel:
+    """
+    Nikon Ti2 emission filter wheel via Micro-Manager NikonTi2 adapter.
+
+    Implements AbstractFilterWheelController interface for single emission wheel.
+    Ti2 typically has 6 positions (1-6).
+    """
+
+    _POSITION_PROP_CANDIDATES = ("Position", "State", "Label")
+
+    def __init__(
+        self,
+        core: Optional[CMMCorePlus] = None,
+        *,
+        filter_wheel_label: str = "FilterWheel",
+        num_positions: int = 6,
+    ):
+        self.core = core or CMMCorePlus.instance()
+        self.filter_wheel_label = filter_wheel_label
+        self._num_positions = num_positions
+        self._initialized = False
+        self._prop_position: Optional[str] = None
+
+    def initialize(self, filter_wheel_indices: List[int]):
+        """Initialize the filter wheel and resolve properties."""
+        self._prop_position = self._pick_property(self.filter_wheel_label, self._POSITION_PROP_CANDIDATES, must=False)
+        self._initialized = True
+
+    @property
+    def available_filter_wheels(self) -> List[int]:
+        """Single filter wheel at index 1."""
+        return [1]
+
+    def get_filter_wheel_info(self, index: int):
+        """Get information about the filter wheel."""
+        from squid.abc import FilterWheelInfo
+
+        return FilterWheelInfo(
+            index=index,
+            number_of_slots=self._num_positions,
+            slot_names=[f"Position {i}" for i in range(1, self._num_positions + 1)],
+        )
+
+    def home(self, index: int = None):
+        """Home the filter wheel (move to position 1)."""
+        self._require_initialized()
+        self.set_filter_wheel_position({1: 1})
+
+    def set_filter_wheel_position(self, positions: Dict[int, int]):
+        """Set filter wheel position."""
+        self._require_initialized()
+        if 1 not in positions:
+            return
+
+        pos = positions[1]
+        if not (1 <= pos <= self._num_positions):
+            raise NikonFilterWheelException(f"Position {pos} out of range [1, {self._num_positions}]")
+
+        try:
+            # Try setPosition first (common for state devices)
+            self.core.setPosition(self.filter_wheel_label, float(pos - 1))  # 0-indexed in MM
+        except Exception:
+            # Fall back to property-based control
+            if self._prop_position:
+                self.core.setProperty(self.filter_wheel_label, self._prop_position, str(pos))
+            else:
+                raise NikonFilterWheelException("Cannot set filter wheel position: no position property found")
+
+        # Wait for movement to complete
+        try:
+            self.core.waitForDevice(self.filter_wheel_label)
+        except Exception:
+            pass
+
+    def get_filter_wheel_position(self) -> Dict[int, int]:
+        """Get current filter wheel position."""
+        self._require_initialized()
+        try:
+            pos = int(self.core.getPosition(self.filter_wheel_label)) + 1  # Convert to 1-indexed
+            return {1: pos}
+        except Exception:
+            if self._prop_position:
+                val = self.core.getProperty(self.filter_wheel_label, self._prop_position)
+                return {1: int(val)}
+            raise NikonFilterWheelException("Cannot read filter wheel position")
+
+    def set_delay_offset_ms(self, delay_offset_ms: float):
+        """No-op: Ti2 filter wheel timing is hardware-controlled."""
+        pass
+
+    def get_delay_offset_ms(self) -> Optional[float]:
+        """Returns None: Ti2 filter wheel timing is hardware-controlled."""
+        return None
+
+    def set_delay_ms(self, delay_ms: float):
+        """No-op: Ti2 filter wheel timing is hardware-controlled."""
+        pass
+
+    def get_delay_ms(self) -> Optional[float]:
+        """Returns None: Ti2 filter wheel timing is hardware-controlled."""
+        return None
+
+    def close(self):
+        """Close the filter wheel connection."""
+        self._initialized = False
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonFilterWheelException("Call initialize() first.")
+
+    def _pick_property(self, dev: str, candidates: Sequence[str], *, must: bool) -> Optional[str]:
+        """Find a property from candidates list."""
+        try:
+            props = set(self.core.getDevicePropertyNames(dev))
+        except Exception:
+            if must:
+                raise NikonFilterWheelException(f"Cannot read properties for device '{dev}'")
+            return None
+
+        for p in candidates:
+            if p in props:
+                return p
+
+        if must:
+            raise NikonFilterWheelException(f"Could not find required property on '{dev}'. Tried: {list(candidates)}")
+        return None
+
+
+# -----------------------------------------------------------------------------
+# Ti2 DIA (Transmitted Light)
+# -----------------------------------------------------------------------------
+class NikonTi2DIA:
+    """
+    Nikon Ti2 DIA (transmitted light) controller via Micro-Manager.
+
+    Provides on/off control and intensity adjustment (0-100%).
+    """
+
+    _STATE_PROP_CANDIDATES = ("State", "OnOff", "Shutter")
+    _INTENSITY_PROP_CANDIDATES = ("Intensity", "Voltage", "Level", "Power")
+
+    def __init__(
+        self,
+        core: Optional[CMMCorePlus] = None,
+        *,
+        dia_label: str = "DIA",
+    ):
+        self.core = core or CMMCorePlus.instance()
+        self.dia_label = dia_label
+        self._initialized = False
+        self._prop_state: Optional[str] = None
+        self._prop_intensity: Optional[str] = None
+
+    def initialize_device(self) -> None:
+        """Initialize the DIA device and resolve properties."""
+        self._prop_state = self._pick_property(self.dia_label, self._STATE_PROP_CANDIDATES, must=False)
+        self._prop_intensity = self._pick_property(self.dia_label, self._INTENSITY_PROP_CANDIDATES, must=False)
+        self._initialized = True
+
+    def set_state(self, on: bool) -> None:
+        """Turn DIA on or off."""
+        self._require_initialized()
+
+        if self._prop_state:
+            val = "1" if on else "0"
+            try:
+                allowed = list(self.core.getAllowedPropertyValues(self.dia_label, self._prop_state))
+                if allowed:
+                    allowed_lower = [a.lower() for a in allowed]
+                    if on:
+                        for candidate in ["on", "1", "true", "open"]:
+                            if candidate in allowed_lower:
+                                val = allowed[allowed_lower.index(candidate)]
+                                break
+                    else:
+                        for candidate in ["off", "0", "false", "closed"]:
+                            if candidate in allowed_lower:
+                                val = allowed[allowed_lower.index(candidate)]
+                                break
+            except Exception:
+                pass
+
+            try:
+                self.core.setProperty(self.dia_label, self._prop_state, val)
+            except Exception as e:
+                raise NikonDIAException(f"Failed to set DIA state: {e}") from e
+        else:
+            try:
+                if on:
+                    self.core.setShutterOpen(True)
+                else:
+                    self.core.setShutterOpen(False)
+            except Exception as e:
+                raise NikonDIAException(f"Failed to set DIA state (no state property): {e}") from e
+
+    def get_state(self) -> bool:
+        """Get current DIA state."""
+        self._require_initialized()
+
+        if self._prop_state:
+            try:
+                val = self.core.getProperty(self.dia_label, self._prop_state)
+                return val.lower() in ("on", "1", "true", "open")
+            except Exception as e:
+                raise NikonDIAException(f"Failed to get DIA state: {e}") from e
+
+        raise NikonDIAException("Cannot read DIA state: no state property found")
+
+    def set_intensity(self, intensity_percent: float) -> None:
+        """Set DIA intensity (0-100%)."""
+        self._require_initialized()
+        intensity_percent = max(0.0, min(100.0, float(intensity_percent)))
+
+        if self._prop_intensity:
+            try:
+                self.core.setProperty(self.dia_label, self._prop_intensity, str(intensity_percent))
+            except Exception as e:
+                raise NikonDIAException(f"Failed to set DIA intensity: {e}") from e
+        else:
+            raise NikonDIAException("Cannot set DIA intensity: no intensity property found")
+
+    def get_intensity(self) -> float:
+        """Get current DIA intensity (0-100%)."""
+        self._require_initialized()
+
+        if self._prop_intensity:
+            try:
+                val = self.core.getProperty(self.dia_label, self._prop_intensity)
+                return float(val)
+            except Exception as e:
+                raise NikonDIAException(f"Failed to get DIA intensity: {e}") from e
+
+        raise NikonDIAException("Cannot read DIA intensity: no intensity property found")
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonDIAException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+    def _pick_property(self, dev: str, candidates: Sequence[str], *, must: bool) -> Optional[str]:
+        """Find a property from candidates list."""
+        try:
+            props = set(self.core.getDevicePropertyNames(dev))
+        except Exception:
+            if must:
+                raise NikonDIAException(f"Cannot read properties for device '{dev}'")
+            return None
+
+        for p in candidates:
+            if p in props:
+                return p
+
+        if must:
+            raise NikonDIAException(f"Could not find required property on '{dev}'. Tried: {list(candidates)}")
+        return None
+
+
+# -----------------------------------------------------------------------------
+# Adapter: initializes NikonTi2 devices, returns NikonTi2Components
 # -----------------------------------------------------------------------------
 class NikonTi2Adapter:
     """
     Single-entry-point initializer for Nikon Ti2 with:
       - Stage control (XYStage + ZDrive)
       - PFS control (PFS + PFSOffset)
+      - Filter wheel control
+      - DIA (transillumination) control
 
-    On initialize(), this returns two *ready-to-use* objects:
-      (stage: NikonTi2Stage, pfs: NikonTi2PFS)
+    On initialize(), this returns a NikonTi2Components object with requested components.
 
     The scope device name on Ti2 often includes a hardware identifier, e.g.
     '*Ti2-E__0'. If you don't pass scope_device_name, we will auto-select the first
@@ -574,6 +862,8 @@ class NikonTi2Adapter:
     _XY_CANDIDATES = ("XYStage Device", "XYStage", "Ti2XYStage", "Ti2 XYStage")
     _PFS_CANDIDATES = ("PFS Device", "PFS", "Ti2PFS")
     _PFS_OFFSET_CANDIDATES = ("PFSOffset Device", "PFSOffset", "Ti2PFSOffset", "PFS Offset")
+    _FILTERWHEEL_CANDIDATES = ("FilterWheel Device", "FilterWheel", "Ti2FilterWheel", "Filter Wheel")
+    _DIA_CANDIDATES = ("DIA Device", "DIA", "Ti2DIA", "DIA Lamp", "Transmitted Light")
 
     def __init__(
         self,
@@ -586,6 +876,8 @@ class NikonTi2Adapter:
         z_label: str = "ZDrive",
         pfs_label: str = "PFS",
         pfs_offset_label: str = "PFSOffset",
+        filter_wheel_label: str = "FilterWheel",
+        dia_label: str = "DIA",
         set_focus_to_z: bool = True,
         set_xy_stage_device: bool = True,
     ):
@@ -599,17 +891,27 @@ class NikonTi2Adapter:
         self.z_label = z_label
         self.pfs_label = pfs_label
         self.pfs_offset_label = pfs_offset_label
+        self.filter_wheel_label = filter_wheel_label
+        self.dia_label = dia_label
 
         self.set_focus_to_z = set_focus_to_z
         self.set_xy_stage_device = set_xy_stage_device
 
         self._initialized = False
 
-    def initialize(self, *, stage_config: Any = None) -> Tuple[NikonTi2Stage, NikonTi2PFS]:
+    def initialize(
+        self,
+        *,
+        stage_config: Any = None,
+        use_stage: bool = True,
+        use_pfs: bool = True,
+        use_filter_wheel: bool = False,
+        use_dia: bool = False,
+    ) -> NikonTi2Components:
         """
-        Load + initialize Ti2 devices, then return (stage, pfs).
+        Load and initialize Ti2 devices based on flags.
 
-        stage_config is forwarded to NikonTi2Stage (if you are integrating with your AbstractStage).
+        Returns NikonTi2Components with requested components (others are None).
         """
         if self.unload_before_init:
             try:
@@ -620,36 +922,60 @@ class NikonTi2Adapter:
         scope_dev = self.scope_device_name or self._auto_select_scope_device_name()
         self._load(self.scope_label, self._MODULE, scope_dev)
 
-        self._try_load(self.z_label, self._MODULE, self._ZDEV_CANDIDATES)
-        self._try_load(self.xy_label, self._MODULE, self._XY_CANDIDATES)
-        self._try_load(self.pfs_label, self._MODULE, self._PFS_CANDIDATES)
-        self._try_load(self.pfs_offset_label, self._MODULE, self._PFS_OFFSET_CANDIDATES)
+        # Load requested sub-devices
+        if use_stage:
+            self._try_load(self.z_label, self._MODULE, self._ZDEV_CANDIDATES)
+            self._try_load(self.xy_label, self._MODULE, self._XY_CANDIDATES)
+
+        if use_pfs:
+            self._try_load(self.pfs_label, self._MODULE, self._PFS_CANDIDATES)
+            self._try_load(self.pfs_offset_label, self._MODULE, self._PFS_OFFSET_CANDIDATES)
+
+        if use_filter_wheel:
+            self._try_load(self.filter_wheel_label, self._MODULE, self._FILTERWHEEL_CANDIDATES)
+
+        if use_dia:
+            self._try_load(self.dia_label, self._MODULE, self._DIA_CANDIDATES)
 
         try:
             self.core.initializeAllDevices()
         except Exception as e:
             raise NikonTi2Exception(f"initializeAllDevices failed: {e}") from e
 
-        if self.set_focus_to_z:
+        if use_stage and self.set_focus_to_z:
             try:
                 self.core.setFocusDevice(self.z_label)
             except Exception:
                 pass
 
-        if self.set_xy_stage_device:
+        if use_stage and self.set_xy_stage_device:
             try:
                 self.core.setXYStageDevice(self.xy_label)
             except Exception:
                 pass
 
-        stage = NikonTi2Stage(self.core, stage_config, xy_label=self.xy_label, z_label=self.z_label)
-        pfs = NikonTi2PFS(self.core, pfs_label=self.pfs_label, pfs_offset_label=self.pfs_offset_label)
+        # Create component objects
+        stage = None
+        if use_stage:
+            stage = NikonTi2Stage(self.core, stage_config, xy_label=self.xy_label, z_label=self.z_label)
 
-        # Resolve properties now so failures show up early.
-        pfs.initialize_device()
+        pfs = None
+        if use_pfs:
+            pfs = NikonTi2PFS(self.core, pfs_label=self.pfs_label, pfs_offset_label=self.pfs_offset_label)
+            pfs.initialize_device()
+
+        filter_wheel = None
+        if use_filter_wheel:
+            filter_wheel = NikonTi2FilterWheel(self.core, filter_wheel_label=self.filter_wheel_label)
+            filter_wheel.initialize([1])
+
+        dia = None
+        if use_dia:
+            dia = NikonTi2DIA(self.core, dia_label=self.dia_label)
+            dia.initialize_device()
 
         self._initialized = True
-        return stage, pfs
+        return NikonTi2Components(stage=stage, pfs=pfs, filter_wheel=filter_wheel, dia=dia)
 
     # ----- helpers -----
     def _auto_select_scope_device_name(self) -> str:
@@ -971,14 +1297,150 @@ class NikonTi2Stage_Simulation(AbstractStage):
 
 
 # -----------------------------------------------------------------------------
-# Simulated Adapter: returns simulated (stage, pfs)
+# Simulated Ti2 Filter Wheel
+# -----------------------------------------------------------------------------
+class NikonTi2FilterWheel_Simulation:
+    """
+    Simulated Nikon Ti2 filter wheel for testing without hardware.
+
+    Implements AbstractFilterWheelController interface.
+    Ti2 typically has a single 6-position emission filter wheel.
+    """
+
+    def __init__(self, *, filter_wheel_label: str = "FilterWheel", num_positions: int = 6):
+        self.filter_wheel_label = filter_wheel_label
+        self._num_positions = num_positions
+        self._initialized = False
+        self._position = 1  # 1-indexed positions
+
+    def initialize(self, filter_wheel_indices: List[int]):
+        """Initialize the filter wheel."""
+        self._initialized = True
+        self._position = 1
+
+    @property
+    def available_filter_wheels(self) -> List[int]:
+        """Single filter wheel at index 1."""
+        return [1]
+
+    def get_filter_wheel_info(self, index: int):
+        """Get information about the filter wheel."""
+        from squid.abc import FilterWheelInfo
+
+        return FilterWheelInfo(
+            index=index,
+            number_of_slots=self._num_positions,
+            slot_names=[f"Position {i}" for i in range(1, self._num_positions + 1)],
+        )
+
+    def home(self, index: int = None):
+        """Home the filter wheel (moves to position 1)."""
+        self._require_initialized()
+        self._position = 1
+
+    def set_filter_wheel_position(self, positions: Dict[int, int]):
+        """Set filter wheel position."""
+        self._require_initialized()
+        if 1 in positions:
+            pos = positions[1]
+            if not (1 <= pos <= self._num_positions):
+                raise NikonFilterWheelException(f"Position {pos} out of range [1, {self._num_positions}]")
+            self._position = pos
+
+    def get_filter_wheel_position(self) -> Dict[int, int]:
+        """Get current filter wheel position."""
+        self._require_initialized()
+        return {1: self._position}
+
+    def set_delay_offset_ms(self, delay_offset_ms: float):
+        """No-op: Ti2 filter wheel timing is hardware-controlled."""
+        pass
+
+    def get_delay_offset_ms(self) -> Optional[float]:
+        """Returns None: Ti2 filter wheel timing is hardware-controlled."""
+        return None
+
+    def set_delay_ms(self, delay_ms: float):
+        """No-op: Ti2 filter wheel timing is hardware-controlled."""
+        pass
+
+    def get_delay_ms(self) -> Optional[float]:
+        """Returns None: Ti2 filter wheel timing is hardware-controlled."""
+        return None
+
+    def close(self):
+        """Close the filter wheel connection."""
+        self._initialized = False
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonFilterWheelException("Call initialize() first.")
+
+
+# -----------------------------------------------------------------------------
+# Simulated Ti2 DIA (Transmitted Light)
+# -----------------------------------------------------------------------------
+class NikonTi2DIA_Simulation:
+    """
+    Simulated Nikon Ti2 DIA (transmitted light) controller for testing.
+
+    Provides on/off control and intensity adjustment (0-100%).
+    """
+
+    def __init__(self, *, dia_label: str = "DIA", simulate_delays: bool = False):
+        self.dia_label = dia_label
+        self.simulate_delays = simulate_delays
+        self._initialized = False
+        self._state = False
+        self._intensity = 0.0
+
+    def initialize_device(self) -> None:
+        """Initialize the DIA device."""
+        self._initialized = True
+        self._state = False
+        self._intensity = 0.0
+
+    def set_state(self, on: bool) -> None:
+        """Turn DIA on or off."""
+        self._require_initialized()
+        self._state = bool(on)
+
+    def get_state(self) -> bool:
+        """Get current DIA state."""
+        self._require_initialized()
+        return self._state
+
+    def set_intensity(self, intensity_percent: float) -> None:
+        """Set DIA intensity (0-100%)."""
+        self._require_initialized()
+        self._intensity = max(0.0, min(100.0, float(intensity_percent)))
+
+    def get_intensity(self) -> float:
+        """Get current DIA intensity (0-100%)."""
+        self._require_initialized()
+        return self._intensity
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonDIAException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+
+# -----------------------------------------------------------------------------
+# Simulated Adapter: returns simulated NikonTi2Components
 # -----------------------------------------------------------------------------
 class NikonTi2Adapter_Simulation:
     """
     Simulated single-entry-point initializer for Nikon Ti2.
 
-    On initialize(), this returns two *ready-to-use* simulated objects:
-      (stage: NikonTi2Stage_Simulation, pfs: NikonTi2PFS_Simulation)
+    On initialize(), this returns NikonTi2Components with simulated objects.
     """
 
     def __init__(
@@ -988,38 +1450,69 @@ class NikonTi2Adapter_Simulation:
         z_label: str = "ZDrive",
         pfs_label: str = "PFS",
         pfs_offset_label: str = "PFSOffset",
+        filter_wheel_label: str = "FilterWheel",
+        dia_label: str = "DIA",
         simulate_delays: bool = True,
     ):
         self.xy_label = xy_label
         self.z_label = z_label
         self.pfs_label = pfs_label
         self.pfs_offset_label = pfs_offset_label
+        self.filter_wheel_label = filter_wheel_label
+        self.dia_label = dia_label
         self.simulate_delays = simulate_delays
 
         self._initialized = False
 
-    def initialize(self, *, stage_config: Any = None) -> Tuple["NikonTi2Stage_Simulation", "NikonTi2PFS_Simulation"]:
+    def initialize(
+        self,
+        *,
+        stage_config: Any = None,
+        use_stage: bool = True,
+        use_pfs: bool = True,
+        use_filter_wheel: bool = False,
+        use_dia: bool = False,
+    ) -> NikonTi2Components:
         """
-        Initialize simulated Ti2 devices, then return (stage, pfs).
+        Initialize simulated Ti2 devices based on flags.
 
-        stage_config is forwarded to NikonTi2Stage_Simulation.
+        Returns NikonTi2Components with simulated objects.
         """
-        stage = NikonTi2Stage_Simulation(
-            stage_config,
-            xy_label=self.xy_label,
-            z_label=self.z_label,
-            simulate_delays=self.simulate_delays,
-        )
-        pfs = NikonTi2PFS_Simulation(
-            pfs_label=self.pfs_label,
-            pfs_offset_label=self.pfs_offset_label,
-            simulate_delays=self.simulate_delays,
-        )
+        stage = None
+        if use_stage:
+            stage = NikonTi2Stage_Simulation(
+                stage_config,
+                xy_label=self.xy_label,
+                z_label=self.z_label,
+                simulate_delays=self.simulate_delays,
+            )
 
-        pfs.initialize_device()
+        pfs = None
+        if use_pfs:
+            pfs = NikonTi2PFS_Simulation(
+                pfs_label=self.pfs_label,
+                pfs_offset_label=self.pfs_offset_label,
+                simulate_delays=self.simulate_delays,
+            )
+            pfs.initialize_device()
+
+        filter_wheel = None
+        if use_filter_wheel:
+            filter_wheel = NikonTi2FilterWheel_Simulation(
+                filter_wheel_label=self.filter_wheel_label,
+            )
+            filter_wheel.initialize([1])
+
+        dia = None
+        if use_dia:
+            dia = NikonTi2DIA_Simulation(
+                dia_label=self.dia_label,
+                simulate_delays=self.simulate_delays,
+            )
+            dia.initialize_device()
 
         self._initialized = True
-        return stage, pfs
+        return NikonTi2Components(stage=stage, pfs=pfs, filter_wheel=filter_wheel, dia=dia)
 
     @property
     def is_initialized(self) -> bool:

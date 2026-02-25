@@ -372,6 +372,16 @@ def generate_default_configuration(filename: str) -> None:
             camera_sn="",
             z_offset=0.0,
         ),
+        ChannelMode(
+            id="26",
+            name="NIKON DIA",
+            exposure_time=12,
+            analog_gain=0,
+            illumination_source=30,
+            illumination_intensity=50,
+            camera_sn="",
+            z_offset=0.0,
+        ),
     ]
 
     config = ChannelConfig(modes=default_modes)

@@ -52,7 +52,10 @@ class LiveController:
 
     # illumination control
     def turn_on_illumination(self):
-        if not "LED matrix" in self.currentConfiguration.name and not "PATTERN" in self.currentConfiguration.name:
+        if "NIKON DIA" in self.currentConfiguration.name:
+            if self.microscope.addons.nikon_dia:
+                self.microscope.addons.nikon_dia.set_state(True)
+        elif not "LED matrix" in self.currentConfiguration.name and not "PATTERN" in self.currentConfiguration.name:
             self.microscope.illumination_controller.turn_on_illumination(
                 int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             )
@@ -64,7 +67,10 @@ class LiveController:
         self.illumination_on = True
 
     def turn_off_illumination(self):
-        if not "LED matrix" in self.currentConfiguration.name and not "PATTERN" in self.currentConfiguration.name:
+        if "NIKON DIA" in self.currentConfiguration.name:
+            if self.microscope.addons.nikon_dia:
+                self.microscope.addons.nikon_dia.set_state(False)
+        elif not "LED matrix" in self.currentConfiguration.name and not "PATTERN" in self.currentConfiguration.name:
             self.microscope.illumination_controller.turn_off_illumination(
                 int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             )
@@ -128,6 +134,9 @@ class LiveController:
                     )
         elif illumination_source >= 21 and illumination_source <= 24:
             self.microscope.low_level_drivers.microcontroller.set_illumination(illumination_source, intensity)
+        elif illumination_source == 30:  # NIKON DIA
+            if self.microscope.addons.nikon_dia:
+                self.microscope.addons.nikon_dia.set_intensity(intensity)
         else:
             wavelength = int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             self.microscope.illumination_controller.set_intensity(wavelength, intensity)

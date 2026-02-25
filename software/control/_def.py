@@ -751,7 +751,22 @@ SQUID_FILTERWHEEL_TRANSITIONS_PER_REVOLUTION = 4000
 USE_PRIOR_STAGE = False
 PRIOR_STAGE_SN = ""
 
+
+# Nikon Ti2 Integration
+class NIKON:
+    NIKON_BODY = None  # "Ti2" or None - enables Nikon integration when set
+    USE_NIKON_PFS = False
+    USE_NIKON_STAGE = False
+    USE_NIKON_FILTER_WHEEL = False
+    USE_NIKON_TRANSILLUMINATION = False
+
+
+# Backward compatibility aliases
+NIKON_BODY = None
 USE_NIKON_PFS = False
+USE_NIKON_STAGE = False
+USE_NIKON_FILTER_WHEEL = False
+USE_NIKON_TRANSILLUMINATION = False
 
 # camera blacklevel settings
 DISPLAY_TOUPCAMER_BLACKLEVEL_SETTINGS = False

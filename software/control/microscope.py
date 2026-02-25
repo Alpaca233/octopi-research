@@ -133,13 +133,18 @@ class MicroscopeAddons:
             )
             sci_microscopy_led_array.set_NA(control._def.SCIMICROSCOPY_LED_ARRAY_DEFAULT_NA)
 
-        nikon_pfs = None
-        nikon_stage = None
-        if control._def.USE_NIKON_PFS:
+        nikon_components = None
+        if control._def.NIKON.NIKON_BODY == "Ti2":
             from control.nikon_ti2 import NikonTi2Adapter, NikonTi2Adapter_Simulation
 
             adapter = NikonTi2Adapter(unload_before_init=True) if not simulated else NikonTi2Adapter_Simulation()
-            nikon_stage, nikon_pfs = adapter.initialize(stage_config=squid.config.get_stage_config())
+            nikon_components = adapter.initialize(
+                stage_config=squid.config.get_stage_config(),
+                use_stage=control._def.NIKON.USE_NIKON_STAGE,
+                use_pfs=control._def.NIKON.USE_NIKON_PFS,
+                use_filter_wheel=control._def.NIKON.USE_NIKON_FILTER_WHEEL,
+                use_dia=control._def.NIKON.USE_NIKON_TRANSILLUMINATION,
+            )
 
         return MicroscopeAddons(
             xlight,
@@ -152,8 +157,10 @@ class MicroscopeAddons:
             fluidics,
             piezo_stage,
             sci_microscopy_led_array,
-            nikon_pfs,
-            nikon_stage,
+            nikon_components.pfs if nikon_components else None,
+            nikon_components.stage if nikon_components else None,
+            nikon_components.filter_wheel if nikon_components else None,
+            nikon_components.dia if nikon_components else None,
         )
 
     def __init__(
@@ -170,6 +177,8 @@ class MicroscopeAddons:
         sci_microscopy_led_array: Optional[SciMicroscopyLEDArray] = None,
         nikon_pfs=None,
         nikon_stage: Optional[AbstractStage] = None,
+        nikon_filter_wheel=None,
+        nikon_dia=None,
     ):
         self.xlight: Optional[serial_peripherals.XLight] = xlight
         self.dragonfly: Optional[serial_peripherals.Dragonfly] = dragonfly
@@ -183,6 +192,8 @@ class MicroscopeAddons:
         self.sci_microscopy_led_array = sci_microscopy_led_array
         self.nikon_pfs = nikon_pfs
         self._nikon_stage: Optional[AbstractStage] = nikon_stage
+        self.nikon_filter_wheel = nikon_filter_wheel
+        self.nikon_dia = nikon_dia
 
     def prepare_for_use(self):
         """
