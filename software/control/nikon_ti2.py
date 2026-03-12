@@ -578,13 +578,13 @@ class NikonTi2FilterWheel:
     Ti2 typically has 6 positions (1-6).
     """
 
-    _POSITION_PROP_CANDIDATES = ("Position", "State", "Label")
+    _POSITION_PROP_CANDIDATES = ("Position", "State")
 
     def __init__(
         self,
         core: Optional[CMMCorePlus] = None,
         *,
-        filter_wheel_label: str = "FilterWheel",
+        filter_wheel_label: str = "FilterWheel1",
         num_positions: int = 6,
     ):
         self.core = core or CMMCorePlus.instance()
@@ -719,7 +719,7 @@ class NikonTi2DIA:
         self,
         core: Optional[CMMCorePlus] = None,
         *,
-        dia_label: str = "DIA",
+        dia_label: str = "DiaLamp",
     ):
         self.core = core or CMMCorePlus.instance()
         self.dia_label = dia_label
@@ -785,11 +785,12 @@ class NikonTi2DIA:
     def set_intensity(self, intensity_percent: float) -> None:
         """Set DIA intensity (0-100%)."""
         self._require_initialized()
-        intensity_percent = max(0.0, min(100.0, float(intensity_percent)))
+        magic_number = 21
+        intensity = intensity_percent * magic_number
 
         if self._prop_intensity:
             try:
-                self.core.setProperty(self.dia_label, self._prop_intensity, str(intensity_percent))
+                self.core.setProperty(self.dia_label, self._prop_intensity, str(intensity))
             except Exception as e:
                 raise NikonDIAException(f"Failed to set DIA intensity: {e}") from e
         else:
@@ -862,8 +863,8 @@ class NikonTi2Adapter:
     _XY_CANDIDATES = ("XYStage Device", "XYStage", "Ti2XYStage", "Ti2 XYStage")
     _PFS_CANDIDATES = ("PFS Device", "PFS", "Ti2PFS")
     _PFS_OFFSET_CANDIDATES = ("PFSOffset Device", "PFSOffset", "Ti2PFSOffset", "PFS Offset")
-    _FILTERWHEEL_CANDIDATES = ("FilterWheel Device", "FilterWheel", "Ti2FilterWheel", "Filter Wheel")
-    _DIA_CANDIDATES = ("DIA Device", "DIA", "Ti2DIA", "DIA Lamp", "Transmitted Light")
+    _FILTERWHEEL_CANDIDATES = ("FilterWheel Device", "FilterWheel", "Ti2FilterWheel", "Filter Wheel", "FilterWheel1")
+    _DIA_CANDIDATES = ("DIA Device", "DIA", "Ti2DIA", "DIA Lamp", "Transmitted Light", "DiaLamp")
 
     def __init__(
         self,
@@ -876,8 +877,8 @@ class NikonTi2Adapter:
         z_label: str = "ZDrive",
         pfs_label: str = "PFS",
         pfs_offset_label: str = "PFSOffset",
-        filter_wheel_label: str = "FilterWheel",
-        dia_label: str = "DIA",
+        filter_wheel_label: str = "FilterWheel1",
+        dia_label: str = "DiaLamp",
         set_focus_to_z: bool = True,
         set_xy_stage_device: bool = True,
     ):
@@ -1033,7 +1034,7 @@ class NikonTi2Adapter:
     @property
     def is_initialized(self) -> bool:
         return bool(self._initialized)
-
+    
 
 # -----------------------------------------------------------------------------
 # Simulated Ti2 PFS
@@ -1307,7 +1308,7 @@ class NikonTi2FilterWheel_Simulation:
     Ti2 typically has a single 6-position emission filter wheel.
     """
 
-    def __init__(self, *, filter_wheel_label: str = "FilterWheel", num_positions: int = 6):
+    def __init__(self, *, filter_wheel_label: str = "FilterWheel1", num_positions: int = 6):
         self.filter_wheel_label = filter_wheel_label
         self._num_positions = num_positions
         self._initialized = False
@@ -1391,7 +1392,7 @@ class NikonTi2DIA_Simulation:
     Provides on/off control and intensity adjustment (0-100%).
     """
 
-    def __init__(self, *, dia_label: str = "DIA", simulate_delays: bool = False):
+    def __init__(self, *, dia_label: str = "DiaLamp", simulate_delays: bool = False):
         self.dia_label = dia_label
         self.simulate_delays = simulate_delays
         self._initialized = False
