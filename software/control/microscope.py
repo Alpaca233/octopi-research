@@ -86,7 +86,7 @@ class MicroscopeAddons:
 
         emission_filter_wheel = None
         fw_config = squid.config.get_filter_wheel_config()
-        if fw_config:
+        if fw_config and fw_config.controller_type != squid.config.FilterWheelControllerVariant.NIKON:
             emission_filter_wheel = squid.filter_wheel_controller.utils.get_filter_wheel_controller(
                 fw_config, microcontroller=micro, simulated=simulated
             )
