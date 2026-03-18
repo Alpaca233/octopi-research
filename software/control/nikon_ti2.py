@@ -66,6 +66,14 @@ class NikonDIAException(NikonTi2Exception):
     pass
 
 
+class NikonCondenserTurretException(NikonTi2Exception):
+    pass
+
+
+class NikonFilterTurretException(NikonTi2Exception):
+    pass
+
+
 # -----------------------------------------------------------------------------
 # Components container
 # -----------------------------------------------------------------------------
@@ -77,6 +85,8 @@ class NikonTi2Components:
     pfs: Optional["NikonTi2PFS"] = None
     filter_wheel: Optional["NikonTi2FilterWheel"] = None
     dia: Optional["NikonTi2DIA"] = None
+    condenser_turret: Optional["NikonTi2CondenserTurret"] = None
+    filter_turret: Optional["NikonTi2FilterTurret"] = None
 
 
 # -----------------------------------------------------------------------------
@@ -843,6 +853,102 @@ class NikonTi2DIA:
 
 
 # -----------------------------------------------------------------------------
+# Ti2 Condenser Turret
+# -----------------------------------------------------------------------------
+class NikonTi2CondenserTurret:
+    """
+    Nikon Ti2 condenser turret via Micro-Manager NikonTi2 adapter.
+
+    Provides get/set position control via the "State" property.
+    """
+
+    def __init__(
+        self,
+        core: Optional[CMMCorePlus] = None,
+        *,
+        label: str = "CondenserTurret",
+    ):
+        self.core = core or CMMCorePlus.instance()
+        self.label = label
+        self._initialized = False
+
+    def initialize_device(self) -> None:
+        self._initialized = True
+
+    def set_position(self, position: int) -> None:
+        self._require_initialized()
+        try:
+            self.core.setProperty(self.label, "State", str(position))
+            self.core.waitForDevice(self.label)
+        except Exception as e:
+            raise NikonCondenserTurretException(f"Failed to set condenser turret position: {e}") from e
+
+    def get_position(self) -> int:
+        self._require_initialized()
+        try:
+            val = self.core.getProperty(self.label, "State")
+            return int(val)
+        except Exception as e:
+            raise NikonCondenserTurretException(f"Failed to get condenser turret position: {e}") from e
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonCondenserTurretException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+
+# -----------------------------------------------------------------------------
+# Ti2 Filter Turret
+# -----------------------------------------------------------------------------
+class NikonTi2FilterTurret:
+    """
+    Nikon Ti2 filter turret via Micro-Manager NikonTi2 adapter.
+
+    Provides get/set position control via the "State" property.
+    """
+
+    def __init__(
+        self,
+        core: Optional[CMMCorePlus] = None,
+        *,
+        label: str = "FilterTurret1",
+    ):
+        self.core = core or CMMCorePlus.instance()
+        self.label = label
+        self._initialized = False
+
+    def initialize_device(self) -> None:
+        self._initialized = True
+
+    def set_position(self, position: int) -> None:
+        self._require_initialized()
+        try:
+            self.core.setProperty(self.label, "State", str(position))
+            self.core.waitForDevice(self.label)
+        except Exception as e:
+            raise NikonFilterTurretException(f"Failed to set filter turret position: {e}") from e
+
+    def get_position(self) -> int:
+        self._require_initialized()
+        try:
+            val = self.core.getProperty(self.label, "State")
+            return int(val)
+        except Exception as e:
+            raise NikonFilterTurretException(f"Failed to get filter turret position: {e}") from e
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonFilterTurretException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+
+# -----------------------------------------------------------------------------
 # Adapter: initializes NikonTi2 devices, returns NikonTi2Components
 # -----------------------------------------------------------------------------
 class NikonTi2Adapter:
@@ -872,6 +978,8 @@ class NikonTi2Adapter:
     _PFS_OFFSET_CANDIDATES = ("PFSOffset Device", "PFSOffset", "Ti2PFSOffset", "PFS Offset")
     _FILTERWHEEL_CANDIDATES = ("FilterWheel Device", "FilterWheel", "Ti2FilterWheel", "Filter Wheel", "FilterWheel1")
     _DIA_CANDIDATES = ("DIA Device", "DIA", "Ti2DIA", "DIA Lamp", "Transmitted Light", "DiaLamp")
+    _CONDENSER_TURRET_CANDIDATES = ("CondenserTurret Device", "CondenserTurret", "Ti2CondenserTurret", "Condenser Turret")
+    _FILTER_TURRET_CANDIDATES = ("FilterTurret1 Device", "FilterTurret1", "Ti2FilterTurret", "Filter Turret")
 
     def __init__(
         self,
@@ -886,6 +994,8 @@ class NikonTi2Adapter:
         pfs_offset_label: str = "PFSOffset",
         filter_wheel_label: str = "FilterWheel1",
         dia_label: str = "DiaLamp",
+        condenser_turret_label: str = "CondenserTurret",
+        filter_turret_label: str = "FilterTurret1",
         set_focus_to_z: bool = True,
         set_xy_stage_device: bool = True,
     ):
@@ -901,6 +1011,8 @@ class NikonTi2Adapter:
         self.pfs_offset_label = pfs_offset_label
         self.filter_wheel_label = filter_wheel_label
         self.dia_label = dia_label
+        self.condenser_turret_label = condenser_turret_label
+        self.filter_turret_label = filter_turret_label
 
         self.set_focus_to_z = set_focus_to_z
         self.set_xy_stage_device = set_xy_stage_device
@@ -915,6 +1027,8 @@ class NikonTi2Adapter:
         use_pfs: bool = True,
         use_filter_wheel: bool = False,
         use_dia: bool = False,
+        use_condenser_turret: bool = False,
+        use_filter_turret: bool = False,
     ) -> NikonTi2Components:
         """
         Load and initialize Ti2 devices based on flags.
@@ -944,6 +1058,12 @@ class NikonTi2Adapter:
 
         if use_dia:
             self._try_load(self.dia_label, self._MODULE, self._DIA_CANDIDATES)
+
+        if use_condenser_turret:
+            self._try_load(self.condenser_turret_label, self._MODULE, self._CONDENSER_TURRET_CANDIDATES)
+
+        if use_filter_turret:
+            self._try_load(self.filter_turret_label, self._MODULE, self._FILTER_TURRET_CANDIDATES)
 
         try:
             self.core.initializeAllDevices()
@@ -982,8 +1102,25 @@ class NikonTi2Adapter:
             dia = NikonTi2DIA(self.core, dia_label=self.dia_label)
             dia.initialize_device()
 
+        condenser_turret = None
+        if use_condenser_turret:
+            condenser_turret = NikonTi2CondenserTurret(self.core, label=self.condenser_turret_label)
+            condenser_turret.initialize_device()
+
+        filter_turret = None
+        if use_filter_turret:
+            filter_turret = NikonTi2FilterTurret(self.core, label=self.filter_turret_label)
+            filter_turret.initialize_device()
+
         self._initialized = True
-        return NikonTi2Components(stage=stage, pfs=pfs, filter_wheel=filter_wheel, dia=dia)
+        return NikonTi2Components(
+            stage=stage,
+            pfs=pfs,
+            filter_wheel=filter_wheel,
+            dia=dia,
+            condenser_turret=condenser_turret,
+            filter_turret=filter_turret,
+        )
 
     # ----- helpers -----
     def _auto_select_scope_device_name(self) -> str:
@@ -1440,6 +1577,70 @@ class NikonTi2DIA_Simulation:
 
 
 # -----------------------------------------------------------------------------
+# Simulated Ti2 Condenser Turret
+# -----------------------------------------------------------------------------
+class NikonTi2CondenserTurret_Simulation:
+    """Simulated Nikon Ti2 condenser turret for testing without hardware."""
+
+    def __init__(self, *, label: str = "CondenserTurret"):
+        self.label = label
+        self._initialized = False
+        self._position = 0
+
+    def initialize_device(self) -> None:
+        self._initialized = True
+        self._position = 0
+
+    def set_position(self, position: int) -> None:
+        self._require_initialized()
+        self._position = int(position)
+
+    def get_position(self) -> int:
+        self._require_initialized()
+        return self._position
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonCondenserTurretException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+
+# -----------------------------------------------------------------------------
+# Simulated Ti2 Filter Turret
+# -----------------------------------------------------------------------------
+class NikonTi2FilterTurret_Simulation:
+    """Simulated Nikon Ti2 filter turret for testing without hardware."""
+
+    def __init__(self, *, label: str = "FilterTurret1"):
+        self.label = label
+        self._initialized = False
+        self._position = 0
+
+    def initialize_device(self) -> None:
+        self._initialized = True
+        self._position = 0
+
+    def set_position(self, position: int) -> None:
+        self._require_initialized()
+        self._position = int(position)
+
+    def get_position(self) -> int:
+        self._require_initialized()
+        return self._position
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise NikonFilterTurretException("Call initialize_device() first.")
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+
+# -----------------------------------------------------------------------------
 # Simulated Adapter: returns simulated NikonTi2Components
 # -----------------------------------------------------------------------------
 class NikonTi2Adapter_Simulation:
@@ -1458,6 +1659,8 @@ class NikonTi2Adapter_Simulation:
         pfs_offset_label: str = "PFSOffset",
         filter_wheel_label: str = "FilterWheel",
         dia_label: str = "DIA",
+        condenser_turret_label: str = "CondenserTurret",
+        filter_turret_label: str = "FilterTurret1",
         simulate_delays: bool = True,
     ):
         self.xy_label = xy_label
@@ -1466,6 +1669,8 @@ class NikonTi2Adapter_Simulation:
         self.pfs_offset_label = pfs_offset_label
         self.filter_wheel_label = filter_wheel_label
         self.dia_label = dia_label
+        self.condenser_turret_label = condenser_turret_label
+        self.filter_turret_label = filter_turret_label
         self.simulate_delays = simulate_delays
 
         self._initialized = False
@@ -1478,6 +1683,8 @@ class NikonTi2Adapter_Simulation:
         use_pfs: bool = True,
         use_filter_wheel: bool = False,
         use_dia: bool = False,
+        use_condenser_turret: bool = False,
+        use_filter_turret: bool = False,
     ) -> NikonTi2Components:
         """
         Initialize simulated Ti2 devices based on flags.
@@ -1517,8 +1724,25 @@ class NikonTi2Adapter_Simulation:
             )
             dia.initialize_device()
 
+        condenser_turret = None
+        if use_condenser_turret:
+            condenser_turret = NikonTi2CondenserTurret_Simulation(label=self.condenser_turret_label)
+            condenser_turret.initialize_device()
+
+        filter_turret = None
+        if use_filter_turret:
+            filter_turret = NikonTi2FilterTurret_Simulation(label=self.filter_turret_label)
+            filter_turret.initialize_device()
+
         self._initialized = True
-        return NikonTi2Components(stage=stage, pfs=pfs, filter_wheel=filter_wheel, dia=dia)
+        return NikonTi2Components(
+            stage=stage,
+            pfs=pfs,
+            filter_wheel=filter_wheel,
+            dia=dia,
+            condenser_turret=condenser_turret,
+            filter_turret=filter_turret,
+        )
 
     @property
     def is_initialized(self) -> bool:

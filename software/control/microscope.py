@@ -144,6 +144,8 @@ class MicroscopeAddons:
                 use_pfs=control._def.NIKON.USE_NIKON_PFS,
                 use_filter_wheel=control._def.NIKON.USE_NIKON_FILTER_WHEEL,
                 use_dia=control._def.NIKON.USE_NIKON_TRANSILLUMINATION,
+                use_condenser_turret=control._def.NIKON.USE_NIKON_CONDENSER_TURRET,
+                use_filter_turret=control._def.NIKON.USE_NIKON_FILTER_TURRET,
             )
 
         # Use Nikon filter wheel as the emission filter wheel when configured
@@ -164,6 +166,8 @@ class MicroscopeAddons:
             nikon_components.pfs if nikon_components else None,
             nikon_components.stage if nikon_components else None,
             nikon_components.dia if nikon_components else None,
+            nikon_components.condenser_turret if nikon_components else None,
+            nikon_components.filter_turret if nikon_components else None,
         )
 
     def __init__(
@@ -181,6 +185,8 @@ class MicroscopeAddons:
         nikon_pfs=None,
         nikon_stage: Optional[AbstractStage] = None,
         nikon_dia=None,
+        nikon_condenser_turret=None,
+        nikon_filter_turret=None,
     ):
         self.xlight: Optional[serial_peripherals.XLight] = xlight
         self.dragonfly: Optional[serial_peripherals.Dragonfly] = dragonfly
@@ -195,6 +201,8 @@ class MicroscopeAddons:
         self.nikon_pfs = nikon_pfs
         self._nikon_stage: Optional[AbstractStage] = nikon_stage
         self.nikon_dia = nikon_dia
+        self.nikon_condenser_turret = nikon_condenser_turret
+        self.nikon_filter_turret = nikon_filter_turret
 
     def prepare_for_use(self):
         """
