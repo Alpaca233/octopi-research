@@ -1071,7 +1071,7 @@ class NikonTi2Adapter:
             raise NikonTi2Exception(f"initializeAllDevices failed: {e}") from e
 
         try:
-            self.core.setProperty("Turret1Shutter", "State", "0")
+            self.core.setProperty("Turret1Shutter", "State", "1")
         except Exception:
             pass
 
