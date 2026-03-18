@@ -382,6 +382,18 @@ class NikonTi2Stage(AbstractStage):
         self.xy_label = xy_label
         self.z_label = z_label
 
+        # Movement sign from stage config (defaults to 1 if not available)
+        self._sign_x = 1
+        self._sign_y = 1
+        self._sign_z = 1
+        if stage_config is not None:
+            try:
+                self._sign_x = stage_config.X_AXIS.MOVEMENT_SIGN
+                self._sign_y = stage_config.Y_AXIS.MOVEMENT_SIGN
+                self._sign_z = stage_config.Z_AXIS.MOVEMENT_SIGN
+            except Exception:
+                pass
+
         # Optional software limits (in mm). None means "no limit".
         self._limits: Dict[str, Tuple[Optional[float], Optional[float]]] = {
             "x": (None, None),
@@ -391,40 +403,45 @@ class NikonTi2Stage(AbstractStage):
 
     # --- relative moves ---
     def move_x(self, rel_mm: float, blocking: bool = True):
-        dx_um = _mm_to_um(rel_mm)
+        dx_um = _mm_to_um(rel_mm) * self._sign_x
         self._move_xy_um(dx_um, 0.0, blocking=blocking)
 
     def move_y(self, rel_mm: float, blocking: bool = True):
-        dy_um = _mm_to_um(rel_mm)
+        dy_um = _mm_to_um(rel_mm) * self._sign_y
         self._move_xy_um(0.0, dy_um, blocking=blocking)
 
     def move_z(self, rel_mm: float, blocking: bool = True):
-        dz_um = _mm_to_um(rel_mm)
+        dz_um = _mm_to_um(rel_mm) * self._sign_z
         self._move_z_um_relative(dz_um, blocking=blocking)
 
     # --- absolute moves ---
     def move_x_to(self, abs_mm: float, blocking: bool = True):
         x_um, y_um = self._get_xy_um()
-        target_x_um = _mm_to_um(abs_mm)
+        target_x_um = _mm_to_um(abs_mm) * self._sign_x
         # self._enforce_limits("x", abs_mm)
         self._set_xy_um(target_x_um, y_um, blocking=blocking)
 
     def move_y_to(self, abs_mm: float, blocking: bool = True):
         x_um, y_um = self._get_xy_um()
-        target_y_um = _mm_to_um(abs_mm)
+        target_y_um = _mm_to_um(abs_mm) * self._sign_y
         # self._enforce_limits("y", abs_mm)
         self._set_xy_um(x_um, target_y_um, blocking=blocking)
 
     def move_z_to(self, abs_mm: float, blocking: bool = True):
         # self._enforce_limits("z", abs_mm)
-        target_z_um = _mm_to_um(abs_mm)
+        target_z_um = _mm_to_um(abs_mm) * self._sign_z
         self._set_z_um(target_z_um, blocking=blocking)
 
     # --- status/position ---
     def get_pos(self) -> Pos:
         x_um, y_um = self._get_xy_um()
         z_um = self._get_z_um()
-        return Pos(x_mm=_um_to_mm(x_um), y_mm=_um_to_mm(y_um), z_mm=_um_to_mm(z_um), theta_rad=None)
+        return Pos(
+            x_mm=_um_to_mm(x_um) * self._sign_x,
+            y_mm=_um_to_mm(y_um) * self._sign_y,
+            z_mm=_um_to_mm(z_um) * self._sign_z,
+            theta_rad=None,
+        )
 
     def get_state(self) -> StageStage:
         busy = False
