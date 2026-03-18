@@ -1062,10 +1062,17 @@ class NikonTi2Adapter:
         if use_filter_turret:
             self._try_load(self.filter_turret_label, self._MODULE, self._FILTER_TURRET_CANDIDATES)
 
+        self._try_load("Turret1Shutter", self._MODULE, ("Turret1Shutter Device", "Turret1Shutter"))
+
         try:
             self.core.initializeAllDevices()
         except Exception as e:
             raise NikonTi2Exception(f"initializeAllDevices failed: {e}") from e
+
+        try:
+            self.core.setProperty("Turret1Shutter", "State", "0")
+        except Exception:
+            pass
 
         if use_stage and self.set_focus_to_z:
             try:
