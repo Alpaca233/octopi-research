@@ -801,7 +801,7 @@ class NikonTi2DIA:
         """Set DIA intensity (0-100%)."""
         self._require_initialized()
         self.magic_number = 21
-        intensity = intensity_percent * magic_number
+        intensity = intensity_percent * self.magic_number
 
         if self._prop_intensity:
             try:

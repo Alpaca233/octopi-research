@@ -134,9 +134,18 @@ class LiveController:
                     )
         elif illumination_source >= 21 and illumination_source <= 24:
             self.microscope.low_level_drivers.microcontroller.set_illumination(illumination_source, intensity)
+            if self.microscope.addons.nikon_filter_turret:
+                self.microscope.addons.nikon_filter_turret.set_position(2)
         elif illumination_source == 30:  # NIKON DIA
             if self.microscope.addons.nikon_dia:
                 self.microscope.addons.nikon_dia.set_intensity(intensity)
+            if self.microscope.addons.nikon_condenser_turret:
+                if "Phase Contrast" in self.currentConfiguration.name:
+                    self.microscope.addons.nikon_condenser_turret.set_position(0)
+                else:
+                    self.microscope.addons.nikon_condenser_turret.set_position(1)
+            if self.microscope.addons.nikon_filter_turret:
+                self.microscope.addons.nikon_filter_turret.set_position(2)
         else:
             wavelength = int(utils_channel.extract_wavelength_from_config_name(self.currentConfiguration.name))
             self.microscope.illumination_controller.set_intensity(wavelength, intensity)
@@ -146,6 +155,10 @@ class LiveController:
                     self.microscope.addons.nl5.set_laser_power(NL5_WAVENLENGTH_MAP[wavelength], int(intensity))
                 if self.microscope.addons.cellx and ENABLE_CELLX:
                     self.microscope.addons.cellx.set_laser_power(NL5_WAVENLENGTH_MAP[wavelength], int(intensity))
+            if self.microscope.addons.nikon_condenser_turret:
+                self.microscope.addons.nikon_condenser_turret.set_position(6)
+            if self.microscope.addons.nikon_filter_turret:
+                self.microscope.addons.nikon_filter_turret.set_position(0)
 
         # set emission filter position
         if ENABLE_SPINNING_DISK_CONFOCAL:
