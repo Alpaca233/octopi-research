@@ -146,6 +146,10 @@ class MicroscopeAddons:
                 use_dia=control._def.NIKON.USE_NIKON_TRANSILLUMINATION,
             )
 
+        # Use Nikon filter wheel as the emission filter wheel when configured
+        if nikon_components and nikon_components.filter_wheel and emission_filter_wheel is None:
+            emission_filter_wheel = nikon_components.filter_wheel
+
         return MicroscopeAddons(
             xlight,
             dragonfly,
@@ -159,7 +163,6 @@ class MicroscopeAddons:
             sci_microscopy_led_array,
             nikon_components.pfs if nikon_components else None,
             nikon_components.stage if nikon_components else None,
-            nikon_components.filter_wheel if nikon_components else None,
             nikon_components.dia if nikon_components else None,
         )
 
@@ -177,7 +180,6 @@ class MicroscopeAddons:
         sci_microscopy_led_array: Optional[SciMicroscopyLEDArray] = None,
         nikon_pfs=None,
         nikon_stage: Optional[AbstractStage] = None,
-        nikon_filter_wheel=None,
         nikon_dia=None,
     ):
         self.xlight: Optional[serial_peripherals.XLight] = xlight
@@ -192,7 +194,6 @@ class MicroscopeAddons:
         self.sci_microscopy_led_array = sci_microscopy_led_array
         self.nikon_pfs = nikon_pfs
         self._nikon_stage: Optional[AbstractStage] = nikon_stage
-        self.nikon_filter_wheel = nikon_filter_wheel
         self.nikon_dia = nikon_dia
 
     def prepare_for_use(self):
@@ -201,7 +202,8 @@ class MicroscopeAddons:
         """
         if self.emission_filter_wheel:
             fw_config = squid.config.get_filter_wheel_config()
-            self.emission_filter_wheel.initialize(fw_config.indices)
+            indices = fw_config.indices if fw_config else [1]
+            self.emission_filter_wheel.initialize(indices)
             self.emission_filter_wheel.home()
         if self.piezo_stage:
             self.piezo_stage.home()

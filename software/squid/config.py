@@ -14,6 +14,7 @@ class FilterWheelControllerVariant(enum.Enum):
     OPTOSPIN = "OPTOSPIN"
     DRAGONFLY = "DRAGONFLY"
     XLIGHT = "XLIGHT"
+    NIKON = "NIKON"
 
     @staticmethod
     def from_string(filter_wheel_controller_string: str) -> Optional["FilterWheelControllerVariant"]:

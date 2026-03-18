@@ -10,12 +10,12 @@ from pymmcore_plus import CMMCorePlus
 # Optional integration with your Stage ABC
 # -----------------------------------------------------------------------------
 try:
-    # Most likely location in your codebase.
-    from squid.abc import AbstractStage, Pos, StageStage  # type: ignore
+    from squid.abc import AbstractStage, Pos, StageStage, AbstractFilterWheelController, FilterWheelInfo  # type: ignore
 except Exception:
     try:
-        # If you keep the ABC elsewhere, adjust this import to match.
         from abc import AbstractStage, Pos, StageStage  # type: ignore
+
+        from squid.abc import AbstractFilterWheelController, FilterWheelInfo  # type: ignore
     except Exception:
         # Minimal fallbacks so this module remains usable standalone.
         class AbstractStage:  # type: ignore
@@ -32,6 +32,15 @@ except Exception:
         @dataclass
         class StageStage:  # type: ignore
             busy: bool
+
+        class AbstractFilterWheelController:  # type: ignore
+            pass
+
+        @dataclass
+        class FilterWheelInfo:  # type: ignore
+            index: int
+            number_of_slots: int
+            slot_names: List[str]
 
 
 # -----------------------------------------------------------------------------
@@ -570,7 +579,7 @@ class NikonTi2Stage(AbstractStage):
 # -----------------------------------------------------------------------------
 # Ti2 Filter Wheel
 # -----------------------------------------------------------------------------
-class NikonTi2FilterWheel:
+class NikonTi2FilterWheel(AbstractFilterWheelController):
     """
     Nikon Ti2 emission filter wheel via Micro-Manager NikonTi2 adapter.
 
@@ -603,10 +612,8 @@ class NikonTi2FilterWheel:
         """Single filter wheel at index 1."""
         return [1]
 
-    def get_filter_wheel_info(self, index: int):
+    def get_filter_wheel_info(self, index: int) -> FilterWheelInfo:
         """Get information about the filter wheel."""
-        from squid.abc import FilterWheelInfo
-
         return FilterWheelInfo(
             index=index,
             number_of_slots=self._num_positions,
@@ -785,7 +792,7 @@ class NikonTi2DIA:
     def set_intensity(self, intensity_percent: float) -> None:
         """Set DIA intensity (0-100%)."""
         self._require_initialized()
-        magic_number = 21
+        self.magic_number = 21
         intensity = intensity_percent * magic_number
 
         if self._prop_intensity:
@@ -803,7 +810,7 @@ class NikonTi2DIA:
         if self._prop_intensity:
             try:
                 val = self.core.getProperty(self.dia_label, self._prop_intensity)
-                return float(val)
+                return float(val/self.magic_number)
             except Exception as e:
                 raise NikonDIAException(f"Failed to get DIA intensity: {e}") from e
 
@@ -1300,7 +1307,7 @@ class NikonTi2Stage_Simulation(AbstractStage):
 # -----------------------------------------------------------------------------
 # Simulated Ti2 Filter Wheel
 # -----------------------------------------------------------------------------
-class NikonTi2FilterWheel_Simulation:
+class NikonTi2FilterWheel_Simulation(AbstractFilterWheelController):
     """
     Simulated Nikon Ti2 filter wheel for testing without hardware.
 
@@ -1324,10 +1331,8 @@ class NikonTi2FilterWheel_Simulation:
         """Single filter wheel at index 1."""
         return [1]
 
-    def get_filter_wheel_info(self, index: int):
+    def get_filter_wheel_info(self, index: int) -> FilterWheelInfo:
         """Get information about the filter wheel."""
-        from squid.abc import FilterWheelInfo
-
         return FilterWheelInfo(
             index=index,
             number_of_slots=self._num_positions,
