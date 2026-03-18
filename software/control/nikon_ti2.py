@@ -627,29 +627,30 @@ class NikonTi2FilterWheel(AbstractFilterWheelController):
         return FilterWheelInfo(
             index=index,
             number_of_slots=self._num_positions,
-            slot_names=[f"Position {i}" for i in range(self._num_positions)],
+            slot_names=[f"Position {i}" for i in range(1, self._num_positions + 1)],
         )
 
     def home(self, index: int = None):
-        """Home the filter wheel (move to position 0)."""
+        """Home the filter wheel (move to position 1)."""
         self._require_initialized()
-        self.set_filter_wheel_position({1: 0})
+        self.set_filter_wheel_position({1: 1})
 
     def set_filter_wheel_position(self, positions: Dict[int, int]):
-        """Set filter wheel position (0-indexed)."""
+        """Set filter wheel position (1-indexed, converted to 0-indexed for MM)."""
         self._require_initialized()
         if 1 not in positions:
             return
 
         pos = positions[1]
-        if not (0 <= pos < self._num_positions):
-            raise NikonFilterWheelException(f"Position {pos} out of range [0, {self._num_positions - 1}]")
+        if not (1 <= pos <= self._num_positions):
+            raise NikonFilterWheelException(f"Position {pos} out of range [1, {self._num_positions}]")
 
+        mm_pos = pos - 1  # Convert to 0-indexed for Micro-Manager
         try:
-            self.core.setPosition(self.filter_wheel_label, float(pos))
+            self.core.setPosition(self.filter_wheel_label, float(mm_pos))
         except Exception:
             if self._prop_position:
-                self.core.setProperty(self.filter_wheel_label, self._prop_position, str(pos))
+                self.core.setProperty(self.filter_wheel_label, self._prop_position, str(mm_pos))
             else:
                 raise NikonFilterWheelException("Cannot set filter wheel position: no position property found")
 
@@ -659,15 +660,15 @@ class NikonTi2FilterWheel(AbstractFilterWheelController):
             pass
 
     def get_filter_wheel_position(self) -> Dict[int, int]:
-        """Get current filter wheel position (0-indexed)."""
+        """Get current filter wheel position (1-indexed)."""
         self._require_initialized()
         try:
-            pos = int(self.core.getPosition(self.filter_wheel_label))
+            pos = int(self.core.getPosition(self.filter_wheel_label)) + 1  # Convert to 1-indexed
             return {1: pos}
         except Exception:
             if self._prop_position:
                 val = self.core.getProperty(self.filter_wheel_label, self._prop_position)
-                return {1: int(val)}
+                return {1: int(val) + 1}  # Convert to 1-indexed
             raise NikonFilterWheelException("Cannot read filter wheel position")
 
     def set_delay_offset_ms(self, delay_offset_ms: float):
@@ -1460,12 +1461,12 @@ class NikonTi2FilterWheel_Simulation(AbstractFilterWheelController):
         self.filter_wheel_label = filter_wheel_label
         self._num_positions = num_positions
         self._initialized = False
-        self._position = 0
+        self._position = 1
 
     def initialize(self, filter_wheel_indices: List[int]):
         """Initialize the filter wheel."""
         self._initialized = True
-        self._position = 0
+        self._position = 1
 
     @property
     def available_filter_wheels(self) -> List[int]:
@@ -1477,25 +1478,25 @@ class NikonTi2FilterWheel_Simulation(AbstractFilterWheelController):
         return FilterWheelInfo(
             index=index,
             number_of_slots=self._num_positions,
-            slot_names=[f"Position {i}" for i in range(self._num_positions)],
+            slot_names=[f"Position {i}" for i in range(1, self._num_positions + 1)],
         )
 
     def home(self, index: int = None):
-        """Home the filter wheel (moves to position 0)."""
+        """Home the filter wheel (moves to position 1)."""
         self._require_initialized()
-        self._position = 0
+        self._position = 1
 
     def set_filter_wheel_position(self, positions: Dict[int, int]):
-        """Set filter wheel position (0-indexed)."""
+        """Set filter wheel position (1-indexed)."""
         self._require_initialized()
         if 1 in positions:
             pos = positions[1]
-            if not (0 <= pos < self._num_positions):
-                raise NikonFilterWheelException(f"Position {pos} out of range [0, {self._num_positions - 1}]")
+            if not (1 <= pos <= self._num_positions):
+                raise NikonFilterWheelException(f"Position {pos} out of range [1, {self._num_positions}]")
             self._position = pos
 
     def get_filter_wheel_position(self) -> Dict[int, int]:
-        """Get current filter wheel position."""
+        """Get current filter wheel position (1-indexed)."""
         self._require_initialized()
         return {1: self._position}
 
