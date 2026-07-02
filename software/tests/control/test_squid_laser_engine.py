@@ -498,3 +498,58 @@ class TestSquidLaserEngineRealClass:
         qtbot.wait(50)
         assert engine.is_connection_lost() is True
         assert any("simulated drop" in s for s in signals)
+
+    def test_open_serial_sets_write_timeout(self, monkeypatch):
+        # Regression: pyserial defaults write_timeout=None (block forever). Opening the
+        # port without a write timeout let an unresponsive engine hang GUI startup, since
+        # start()/wake_up_all() write on the main thread during prepare_for_use().
+        import control.squid_laser_engine as sle
+
+        class _RecordingSerial(_FakeSerial):
+            last_kwargs: dict = {}
+
+            def __init__(self, port, baudrate=None, timeout=None, write_timeout=None, **kwargs):
+                super().__init__()
+                _RecordingSerial.last_kwargs = {
+                    "port": port,
+                    "baudrate": baudrate,
+                    "timeout": timeout,
+                    "write_timeout": write_timeout,
+                }
+
+        monkeypatch.setattr(sle.serial, "Serial", _RecordingSerial)
+        engine = SquidLaserEngine(device="/dev/fake-laser")
+        engine.start()  # _serial is None here, so start() calls _open_serial() -> serial.Serial(...)
+        try:
+            assert _RecordingSerial.last_kwargs["port"] == "/dev/fake-laser"
+            assert _RecordingSerial.last_kwargs["write_timeout"] == SquidLaserEngine.WRITE_TIMEOUT_S
+            assert _RecordingSerial.last_kwargs["write_timeout"] is not None
+        finally:
+            engine.close()
+
+    def test_write_timeout_does_not_block_startup(self, qtbot):
+        # Regression: wake_up_all() runs synchronously on the main thread during
+        # prepare_for_use(). With a bounded write_timeout, a stuck write raises
+        # SerialTimeoutException, which must turn into a prompt connection-lost rather
+        # than wedging startup forever.
+        import serial
+
+        engine, fake = self._make_engine()
+
+        def raise_timeout(_data):
+            raise serial.SerialTimeoutException("simulated write timeout")
+
+        fake.write = raise_timeout
+        signals = []
+        engine.connection_lost.connect(lambda msg: signals.append(msg))
+        # Mark as "started" without launching background threads so _write_packet takes
+        # the running path (not the shutdown-race early return) and the test is deterministic.
+        engine._running.set()
+
+        t0 = time.time()
+        engine.wake_up_all()
+        elapsed = time.time() - t0
+
+        assert elapsed < 1.0  # returned promptly instead of blocking on the timed-out write
+        assert engine.is_connection_lost() is True
+        assert any("simulated write timeout" in s for s in signals)
