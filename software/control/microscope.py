@@ -157,6 +157,10 @@ class MicroscopeAddons:
                 slave_id=control._def.OBJECTIVE_TURRET_SLAVE_ID,
                 baudrate=control._def.OBJECTIVE_TURRET_BAUDRATE,
                 positions=control._def.OBJECTIVE_TURRET_POSITIONS,
+                offset_pulses=control._def.OBJECTIVE_TURRET_OFFSET_PULSES,
+                backlash_deg=control._def.OBJECTIVE_TURRET_BACKLASH_DEG,
+                direction_inverted=control._def.OBJECTIVE_TURRET_DIRECTION_INVERTED,
+                di_invert=control._def.OBJECTIVE_TURRET_DI_INVERT,
                 stage=stage,
             )
             objective_changer = (
@@ -442,6 +446,7 @@ class Microscope:
         skip_init: bool = False,
     ):
         self._log = squid.logging.get_logger(self.__class__.__name__)
+        self._closed = False
 
         self.stage: AbstractStage = stage
         self.camera: AbstractCamera = camera
@@ -1045,7 +1050,12 @@ class Microscope:
 
         Attempts to cleanly shut down all hardware components. Errors during
         shutdown are logged but do not prevent other components from being closed.
+        Calling close() more than once is a no-op.
         """
+        if self._closed:
+            return
+        self._closed = True
+
         try:
             self.stop_live()
         except Exception as e:
